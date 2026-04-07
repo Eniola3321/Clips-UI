@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AuthForm from "@/components/AuthForm";
 
-export default function Home() {
+export default function LoginPage() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [urlAnalyzing, setUrlAnalyzing] = useState(false);
@@ -16,10 +16,8 @@ export default function Home() {
     e.preventDefault();
     if (!url) return;
     setUrlAnalyzing(true);
-    // Fake progress
     await new Promise(r => setTimeout(r, 1500));
     setUrlAnalyzing(false);
-    // Focus email input or redirect
     const emailInput = document.getElementById("auth-email");
     if (emailInput) {
       emailInput.focus();
@@ -29,19 +27,22 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen text-white font-sans flex flex-col relative overflow-hidden bg-background">
-      {/* Background Orbs */}
-      <div className="fixed top-0 left-0 w-[800px] h-[800px] bg-brand/10 rounded-full blur-[150px] pointer-events-none -translate-x-1/2 -translate-y-1/2" />
-      <div className="fixed top-1/4 right-0 w-[600px] h-[600px] bg-brand/[0.07] rounded-full blur-[120px] pointer-events-none translate-x-1/3" />
-      <div className="fixed bottom-0 left-1/2 w-[800px] h-[800px] bg-brand/5 rounded-full blur-[150px] pointer-events-none -translate-x-1/2 translate-y-1/2" />
+    <div 
+      className="min-h-screen text-white font-sans flex flex-col relative overflow-hidden"
+      style={{
+        background: `radial-gradient(circle at 70% 40%, rgba(0,255,156,0.25), transparent 40%),
+                     radial-gradient(circle at 30% 80%, rgba(0,255,156,0.15), transparent 50%),
+                     #050505`
+      }}
+    >
       
       <Navbar />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-6 py-12 flex items-center z-10 relative">
-        <div className="w-full flex flex-col lg:flex-row items-center justify-between gap-16 lg:gap-8 animate-in fade-in duration-700 zoom-in-95 mt-[-40px]">
+      <main className="flex-1 w-full max-w-7xl mx-auto  px-6 py-12 flex items-center z-10 relative">
+        <div className="w-full flex flex-col lg:flex-row  justify-between gap-16 lg:gap-8 animate-in fade-in duration-700 zoom-in-95 mt-[-40px]">
           {/* Left side */}
-          <div className="flex-1 space-y-8 max-w-[580px]">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand/[0.12] border border-brand/20 text-brand text-[11px] font-bold tracking-[0.1em] uppercase">
+          <div className="flex-1 space-y-4 max-w-[580px] ">
+            <div className="inline-flex items-center  gap-2 px-3 py-1.5 rounded-full bg-brand/[0.12] border border-brand/20 text-brand text-[11px] font-bold tracking-[0.1em] uppercase">
               <span className="w-2 h-2 rounded-full bg-brand" style={{ boxShadow: "0 0 10px #00E58F" }} />
               AI CLIPPING V2.0 IS LIVE
             </div>
@@ -51,7 +52,7 @@ export default function Home() {
               <span className="text-brand">viral clips</span>
             </h1>
             
-            <p className="text-[#a1a1aa] text-lg max-w-[500px] leading-[1.6]">
+            <p className="text-[#a1a1aa] text-lg max-w-[400px] leading-[1.6]">
               Preview, pick, post & mint — our AI-powered engine finds the high-retention moments for your viral growth across TikTok, Reels, and Shorts.
             </p>
 
@@ -76,19 +77,10 @@ export default function Home() {
                 ) : "Clip Now"}
               </button>
             </form>
-
-            <div className="flex items-center gap-4 text-sm text-[#71717A] pt-2">
-              <div className="flex -space-x-2.5">
-                <div className="w-9 h-9 rounded-full border-2 border-[#080C0B] bg-zinc-800 flex items-center justify-center text-[10px] overflow-hidden"><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="user" className="w-full h-full object-cover"/></div>
-                <div className="w-9 h-9 rounded-full border-2 border-[#080C0B] bg-zinc-700 flex items-center justify-center text-[10px] overflow-hidden"><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka" alt="user" className="w-full h-full object-cover"/></div>
-                <div className="w-9 h-9 rounded-full border-2 border-[#080C0B] bg-zinc-600 flex items-center justify-center text-[10px] overflow-hidden"><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Jocelyn" alt="user" className="w-full h-full object-cover"/></div>
-              </div>
-              Joined by 10,000+ creators this month
-            </div>
           </div>
 
           {/* Right side - Login Modal */}
-          <div className="w-full max-w-[440px] flex justify-end">
+          <div className="w-full max-w-[340px] flex justify-end">
             <AuthForm mode="login" />
           </div>
         </div>
