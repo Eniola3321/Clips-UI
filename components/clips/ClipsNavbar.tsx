@@ -13,8 +13,8 @@ export default function ClipsNavbar() {
   const navLinks = [
     { label: "Dashboard", href: "/dashboard" },
     { label: "Create Clips", href: "/clips" },
-    { label: "Library", href: "/library" },
-    { label: "Billing", href: "/billing" },
+    // { label: "Library", href: "/library" },
+    // { label: "Billing", href: "/billing" },
   ];
 
   return (

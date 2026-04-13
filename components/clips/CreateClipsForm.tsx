@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Link as LinkIcon, 
   Upload, 
@@ -10,14 +11,33 @@ import {
 } from "lucide-react";
 
 export default function CreateClipsForm() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activePlatform, setActivePlatform] = useState("TikTok");
   const [autoGenerate, setAutoGenerate] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const platforms = [
     { name: "TikTok", icon: "📱" },
     { name: "Instagram", icon: "📸" },
     { name: "YT Shorts", icon: "📺" },
   ];
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleGenerate = () => {
+    // Navigate to the processing page
+    router.push("/dashboard/processing");
+  };
 
   return (
     <div className="w-full bg-[#080C0B]/80 backdrop-blur-3xl border border-brand/20 rounded-[32px] p-6 sm:p-10 shadow-[0_0_100px_rgba(0,229,143,0.03),inset_0_0_20px_rgba(0,229,143,0.05)] relative overflow-hidden group">
@@ -52,15 +72,30 @@ export default function CreateClipsForm() {
         </div>
 
         {/* Upload Area */}
-        <div className="group/upload relative">
+        <div className="group/upload relative" onClick={handleUploadClick}>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            className="hidden" 
+            accept="video/*"
+          />
           <div className="w-full aspect-[21/9] sm:aspect-[4.5/1] border-2 border-dashed border-white/5 group-hover/upload:border-brand/20 rounded-[24px] bg-white/[0.01] group-hover/upload:bg-brand/[0.01] flex flex-col items-center justify-center gap-4 transition-all duration-500 cursor-pointer overflow-hidden">
             <div className="w-14 h-14 rounded-2xl bg-[#0B100E] border border-white/5 flex items-center justify-center group-hover/upload:scale-110 group-hover/upload:border-brand/20 transition-all duration-500 relative">
               <div className="absolute inset-0 bg-brand/5 blur-xl group-hover/upload:bg-brand/10 transition-colors rounded-full" />
-              <Upload className="w-6 h-6 text-[#5A6F65] group-hover/upload:text-brand relative z-10" />
+              {selectedFile ? (
+                <Check className="w-6 h-6 text-brand relative z-10" />
+              ) : (
+                <Upload className="w-6 h-6 text-[#5A6F65] group-hover/upload:text-brand relative z-10" />
+              )}
             </div>
             <div className="text-center space-y-1 relative z-10">
-              <p className="text-[16px] font-bold text-white group-hover/upload:text-brand transition-colors">Click to upload or drag and drop</p>
-              <p className="text-[12px] font-medium text-[#3A4A43]">MP4, MOV, WEBM up to 2GB</p>
+              <p className="text-[16px] font-bold text-white group-hover/upload:text-brand transition-colors">
+                {selectedFile ? selectedFile.name : "Click to upload or drag and drop"}
+              </p>
+              <p className="text-[12px] font-medium text-[#3A4A43]">
+                {selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB` : "MP4, MOV, WEBM up to 2GB"}
+              </p>
             </div>
           </div>
         </div>
@@ -118,7 +153,10 @@ export default function CreateClipsForm() {
             <Info className="w-4 h-4" />
             <span className="text-[13px] font-medium tracking-tight">Estimated processing time: <span className="text-white">4–6 minutes</span></span>
           </div>
-          <button className="w-full sm:w-auto px-10 py-4.5 bg-brand hover:shadow-[0_0_40px_rgba(0,229,143,0.4)] text-black font-black rounded-2xl text-[16px] flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98]">
+          <button 
+            onClick={handleGenerate}
+            className="w-full sm:w-auto px-10 py-4.5 bg-brand hover:shadow-[0_0_40px_rgba(0,229,143,0.4)] text-black font-black rounded-2xl text-[16px] flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
             <span>Generate Clips</span>
             <Sparkles className="w-5 h-5 fill-black" />
           </button>

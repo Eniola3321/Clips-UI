@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import  DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import StatCard from "@/components/dashboard/StatCard";
 import RevenueChart from "@/components/dashboard/RevenueChart";
