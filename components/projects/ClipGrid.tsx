@@ -9,6 +9,7 @@ interface Clip {
   title: string;
   thumbnail: string;
   score: number;
+  scoreKey: string;
   duration: string;
 }
 
@@ -17,13 +18,15 @@ interface ClipGridProps {
   selectedIds: string[];
   onSelect: (id: string) => void;
   onSelectAll: () => void;
+  onDelete?: (id: string) => Promise<void>;
 }
 
 export default function ClipGrid({ 
   clips, 
   selectedIds, 
   onSelect, 
-  onSelectAll 
+  onSelectAll,
+  onDelete
 }: ClipGridProps) {
   const allSelected = selectedIds.length === clips.length && clips.length > 0;
 
@@ -58,13 +61,14 @@ export default function ClipGrid({
       </div>
 
       {/* Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8 pb-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-12">
         {clips.map((clip) => (
           <ClipCard 
             key={clip.id}
             {...clip}
             isSelected={selectedIds.includes(clip.id)}
             onSelect={onSelect}
+            onDelete={onDelete}
           />
         ))}
       </div>

@@ -1,20 +1,63 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { 
-  Send, 
   Trash2, 
   Download, 
   Zap, 
-  MoveRight 
+  MoveRight,
+  Loader2 
 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 
 interface SelectionFooterProps {
   count: number;
+  selectedIds: string[];
+  onDelete: (ids: string[]) => Promise<void>;
+  onClearSelection: () => void;
 }
 
-export default function SelectionFooter({ count }: SelectionFooterProps) {
+export default function SelectionFooter({ count, selectedIds, onDelete, onClearSelection }: SelectionFooterProps) {
+  const [loading, setLoading] = useState(false);
+  const [action, setAction] = useState<string | null>(null);
+
   if (count === 0) return null;
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete ${count} selected clips?`)) return;
+    setLoading(true);
+    setAction('delete');
+    try {
+      await onDelete(selectedIds);
+      onClearSelection();
+    } catch (error) {
+      console.error("Batch delete failed:", error);
+    } finally {
+      setLoading(false);
+      setAction(null);
+    }
+  };
+
+  const handlePost = async () => {
+    setLoading(true);
+    setAction('post');
+    try {
+      for (const clipId of selectedIds) {
+        await apiClient.post("/platforms/post-clip", {
+          clipId: Number(clipId),
+          platforms: ["tiktok"], // Default to tiktok for now
+        });
+      }
+      alert(`Successfully posted ${count} clips!`);
+      onClearSelection();
+    } catch (error) {
+      console.error("Batch post failed:", error);
+      alert("Failed to post some clips. Please check your platform connections.");
+    } finally {
+      setLoading(false);
+      setAction(null);
+    }
+  };
 
   return (
     <div className="w-full py-6 animate-in slide-in-from-bottom-5 fade-in duration-500 border-t border-white/5 bg-[#050505]/40 backdrop-blur-md">
@@ -32,12 +75,19 @@ export default function SelectionFooter({ count }: SelectionFooterProps) {
 
         {/* Middle: Actions */}
         <div className="flex flex-wrap items-center justify-center gap-4 text-[#5A6F65]">
-          <button className="flex items-center gap-2.5 px-6 py-3 rounded-2xl border border-white/5 bg-white/[0.02] text-[13px] font-bold hover:text-white hover:border-white/10 transition-all">
+          <button 
+            disabled={loading}
+            className="flex items-center gap-2.5 px-6 py-3 rounded-2xl border border-white/5 bg-white/[0.02] text-[13px] font-bold hover:text-white hover:border-white/10 transition-all disabled:opacity-50"
+          >
             <Download className="w-4 h-4" />
             <span>Export Clips</span>
           </button>
-          <button className="flex items-center gap-2.5 px-6 py-3 rounded-2xl border border-white/5 bg-white/[0.02] text-[13px] font-bold hover:text-white hover:border-white/10 transition-all">
-            <Trash2 className="w-4 h-4" />
+          <button 
+            onClick={handleDelete}
+            disabled={loading}
+            className="flex items-center gap-2.5 px-6 py-3 rounded-2xl border border-white/5 bg-white/[0.02] text-[13px] font-bold hover:text-red-400 hover:border-red-400/20 transition-all disabled:opacity-50"
+          >
+            {loading && action === 'delete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
             <span>Delete Permanently</span>
           </button>
         </div>
@@ -49,9 +99,17 @@ export default function SelectionFooter({ count }: SelectionFooterProps) {
             <span>AUTO-SCHEDULE ON</span>
           </button>
           
-          <button className="flex items-center gap-3 px-10 py-4 rounded-3xl bg-[#00E58F] text-black font-black text-[15px] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_10px_30px_rgba(0,229,143,0.2)]">
-            <span>Post Selected Clips</span>
-            <MoveRight className="w-5 h-5 ml-1" />
+          <button 
+            onClick={handlePost}
+            disabled={loading}
+            className="flex items-center gap-3 px-10 py-4 rounded-3xl bg-[#00E58F] text-black font-black text-[15px] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_10px_30px_rgba(0,229,143,0.2)] disabled:opacity-50"
+          >
+            {loading && action === 'post' ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+              <>
+                <span>Post Selected Clips</span>
+                <MoveRight className="w-5 h-5 ml-1" />
+              </>
+            )}
           </button>
         </div>
       </div>

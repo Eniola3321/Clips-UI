@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
-import { LucideIcon, CheckCircle2, MoreHorizontal, Settings } from "lucide-react";
+import React, { useState } from "react";
+import { LucideIcon, CheckCircle2, Settings, Loader2 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 
 interface PlatformCardProps {
   name: string;
@@ -14,7 +15,25 @@ interface PlatformCardProps {
 }
 
 export default function PlatformCard({ name, description, icon: Icon, status, ctaText, username, variant = "vertical" }: PlatformCardProps) {
+  const [loading, setLoading] = useState(false);
   const isActive = status === "ACTIVE" || status === "LINKED";
+
+  const handleConnect = async () => {
+    if (isActive) return;
+    setLoading(true);
+    try {
+      const platformKey = name.toLowerCase().split(' / ')[0];
+      const response = await apiClient.get(`/platforms/connect/${platformKey}`);
+      const { url } = response.data;
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error(`Failed to connect to ${name}:`, error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (variant === "horizontal") {
     return (
@@ -41,8 +60,12 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
               </div>
             </div>
           ) : (
-            <button className="px-6 py-2.5 rounded-xl border border-white/10 text-white font-bold text-[13px] hover:bg-white/[0.05] transition-all active:scale-[0.98]">
-              {ctaText}
+            <button 
+              onClick={handleConnect}
+              disabled={loading}
+              className="px-6 py-2.5 rounded-xl border border-white/10 text-white font-bold text-[13px] hover:bg-white/[0.05] transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : ctaText}
             </button>
           )}
         </div>
@@ -71,14 +94,20 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
       </div>
 
       <button 
+        onClick={handleConnect}
+        disabled={loading}
         className={`w-full py-4 rounded-xl font-bold text-[14px] transition-all flex items-center justify-center gap-2.5 ${
           status === "NOT LINKED" 
             ? "bg-brand hover:bg-brand-hover text-black shadow-[0_0_20px_rgba(0,229,143,0.2)] hover:shadow-[0_0_35px_rgba(0,229,143,0.35)]" 
             : "bg-transparent border border-white/10 text-white hover:bg-white/[0.05]"
-        } active:scale-[0.98] group/btn`}
+        } active:scale-[0.98] group/btn disabled:opacity-50`}
       >
-        {status === "ACTIVE" && <Settings className="w-4 h-4 text-[#5A6F65] group-hover/btn:text-white transition-colors" />}
-        {ctaText}
+        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+          <>
+            {status === "ACTIVE" && <Settings className="w-4 h-4 text-[#5A6F65] group-hover/btn:text-white transition-colors" />}
+            {ctaText}
+          </>
+        )}
       </button>
     </div>
   );

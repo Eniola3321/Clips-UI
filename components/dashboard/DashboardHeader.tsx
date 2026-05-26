@@ -8,11 +8,12 @@ interface HeaderProps {
 
 export default function DashboardHeader({ onMenuClick }: HeaderProps) {
   const { user } = useAuth();
-  const firstName = user?.name?.split(' ')[0] || user?.profile?.username || "Guest";
+  const firstName = user?.fullName?.split(' ')[0] || user?.profile?.username || "Guest";
 
   return (
-    <header className="flex justify-between items-center py-6 lg:py-8 px-4 sm:px-6 lg:px-10">
-      <div className="flex items-center gap-4">
+    <header className="w-full border-b border-white/[0.03]">
+      <div className="max-w-[1400px] mx-auto flex justify-between items-center py-6 lg:py-8 px-4 sm:px-6 lg:px-10">
+        <div className="flex items-center gap-4">
         <button 
           onClick={onMenuClick}
           className="lg:hidden p-2 -ml-2 text-[#8e9895] hover:text-white transition-colors"
@@ -40,6 +41,7 @@ export default function DashboardHeader({ onMenuClick }: HeaderProps) {
           Quick Upload
         </button>
       </div>
+    </div>
     </header>
   );
 }

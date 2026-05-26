@@ -1,11 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
-import { MockApi } from "../app/lib/mockApi";
-import { Loader2 } from "lucide-react";
+import { Loader2, Wallet } from "lucide-react";
 import { useAuth } from "./AuthProvider";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { z } from "zod";
+import apiClient from "@/lib/apiClient";
+
+const authSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  fullName: z.string().min(2, "Name must be at least 2 characters").optional(),
+});
 
 // Local inline SVG for Google/Apple to avoid external dependencies perfectly matching
 const GoogleIcon = () => (
@@ -37,15 +43,43 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
     setLoading(true);
 
     try {
+      // Validate inputs
+      const validationResult = authSchema.safeParse({
+        email,
+        password,
+        fullName: currentMode === "signup" ? fullName : undefined,
+      });
+
+      if (!validationResult.success) {
+        throw new Error(validationResult.error.issues[0].message);
+      }
+
       if (currentMode === "login") {
-        const res = await MockApi.login(email, password);
-        setUser(res.user);
+        await apiClient.post('/auths/login', { email, password });
       } else {
-        const res = await MockApi.signup(email, password, fullName);
-        setUser(res.user);
+        await apiClient.post('/auths/signup', { fullName, email, password });
+      }
+
+      // Fetch user profile immediately after successful auth
+      const userResponse = await apiClient.get('/users/me');
+      const user = userResponse.data;
+      setUser(user);
+
+      // Immediate navigation after state update
+      const needsOnboarding = !user.onboardingStep || user.onboardingStep <= 2;
+      if (needsOnboarding) {
+        router.push("/onboarding");
+      } else {
+        router.push("/dashboard");
       }
     } catch (err: any) {
-      setError(err.message);
+      // Detailed logging for debugging 400 errors
+      if (err.response?.status === 400) {
+        console.error("Signup/Login Validation Error:", err.response.data);
+      }
+
+      const message = err.response?.data?.message || err.message || "An error occurred";
+      setError(Array.isArray(message) ? message[0] : message);
       const card = document.getElementById("auth-card");
       if (card) {
         card.classList.remove("shake");
@@ -70,13 +104,24 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
       </p>
       
       <div className="space-y-[14px] mb-8">
-        <button className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2A24] border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]">
+        <button 
+          onClick={() => window.location.href = 'https://clipcash-api.onrender.com/auths/google'}
+          className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2A24] border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
+        >
           <GoogleIcon />
           Continue with Google
         </button>
         <button className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2A24] border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]">
           <AppleIcon />
           Continue with Apple
+        </button>
+        <button 
+          type="button"
+          onClick={() => alert("Wallet connection coming soon!")}
+          className="w-full flex items-center justify-center gap-3 bg-brand/5 hover:bg-brand/10 border border-brand/20 text-brand py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
+        >
+          <Wallet className="w-[18px] h-[18px]" />
+          Connect Wallet
         </button>
       </div>
 
@@ -95,7 +140,7 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
               required
               value={fullName}
               onChange={e => setFullName(e.target.value)}
-              placeholder="e.g. Alex Rivera"
+              placeholder="Your full name"
               className="w-full bg-[#131A17] border border-[#1E2A24] text-white focus:border-brand/70 rounded-[12px] px-4 py-3.5 text-[14px] focus:outline-none focus:bg-[#161F1A] transition-colors"
             />
           </div>

@@ -2,7 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/components/AuthProvider";
+import Logo from "@/components/shared/Logo";
 
 export default function ProcessingHeader() {
   const { user } = useAuth();
@@ -11,23 +13,7 @@ export default function ProcessingHeader() {
     <header className="w-full flex items-center justify-between px-6 py-5 bg-transparent border-b border-white/5 relative z-50">
       {/* Left: Logo */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 bg-[#00FF85] rounded-lg flex items-center justify-center text-black shadow-[0_0_15px_rgba(0,255,133,0.3)]">
-          <svg 
-            width="20" 
-            height="20" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="3" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M7 8h10" />
-            <path d="M7 12h10" />
-            <path d="M7 16h10" />
-          </svg>
-        </div>
+        <Logo variant="simple" />
         <span className="text-white font-bold text-xl tracking-tight">ClipCash AI</span>
       </div>
 
@@ -45,11 +31,13 @@ export default function ProcessingHeader() {
         <button className="hidden sm:block px-5 py-2.5 bg-[#00FF85] hover:bg-[#00E676] text-black font-bold text-sm rounded-full transition-all shadow-[0_0_20px_rgba(0,255,133,0.25)] hover:shadow-[0_0_30px_rgba(0,255,133,0.4)] hover:-translate-y-0.5 active:translate-y-0">
           Upgrade Plan
         </button>
-        <div className="w-10 h-10 rounded-full border border-white/10 bg-zinc-800 flex items-center justify-center overflow-hidden">
-          <img 
+        <div className="w-10 h-10 rounded-full border border-white/10 bg-zinc-800 flex items-center justify-center overflow-hidden relative">
+          <Image 
             src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.profile?.username || "default"}`} 
             alt="User Avatar" 
-            className="w-full h-full object-cover"
+            fill
+            sizes="40px"
+            className="object-cover"
           />
         </div>
       </div>

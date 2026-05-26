@@ -7,8 +7,10 @@ import {
   Upload, 
   Sparkles, 
   Check, 
-  Info 
+  Info,
+  Loader2
 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 
 export default function CreateClipsForm() {
   const router = useRouter();
@@ -16,6 +18,9 @@ export default function CreateClipsForm() {
   const [activePlatform, setActivePlatform] = useState("TikTok");
   const [autoGenerate, setAutoGenerate] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [urlValue, setUrlValue] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const platforms = [
     { name: "TikTok", icon: "📱" },
@@ -27,6 +32,7 @@ export default function CreateClipsForm() {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
+      setError("");
     }
   };
 
@@ -34,9 +40,56 @@ export default function CreateClipsForm() {
     fileInputRef.current?.click();
   };
 
-  const handleGenerate = () => {
-    // Navigate to the processing page
-    router.push("/dashboard/processing");
+  const handleFetchUrl = async () => {
+    if (!urlValue.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await apiClient.post("/videos/from-url", {
+        url: urlValue.trim(),
+        targetPlatforms: [activePlatform.toLowerCase()],
+        style: "viral",
+      });
+      const video = response.data;
+      
+      if (!video?.id) {
+        throw new Error("Failed to get video ID from response.");
+      }
+      
+      router.push(`/dashboard/processing?videoId=${video.id}`);
+    } catch (err: any) {
+      const message = err.response?.data?.message || "Failed to submit URL. Please try again.";
+      setError(Array.isArray(message) ? message[0] : message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedFile) return;
+    setLoading(true);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("title", selectedFile.name);
+      formData.append("sourceType", "upload");
+      formData.append("style", "viral");
+
+      const response = await apiClient.post("/videos", formData);
+      const video = response.data;
+      
+      if (!video?.id) {
+        throw new Error("Failed to get video ID from response.");
+      }
+      
+      router.push(`/dashboard/processing?videoId=${video.id}`);
+    } catch (err: any) {
+      const message = err.response?.data?.message || "Upload failed. Please try again.";
+      setError(Array.isArray(message) ? message[0] : message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -56,11 +109,18 @@ export default function CreateClipsForm() {
             </div>
             <input 
               type="text" 
+              value={urlValue}
+              onChange={(e) => setUrlValue(e.target.value)}
+              disabled={loading}
               placeholder="Paste YouTube, TikTok or Twitch link here..." 
-              className="w-full h-14 bg-[#0B100E] border border-white/[0.03] focus:border-brand/40 focus:ring-4 focus:ring-brand/5 rounded-2xl pl-16 pr-44 text-[14px] font-medium placeholder-[#3A4A43] text-white transition-all outline-none"
+              className="w-full h-14 bg-[#0B100E] border border-white/[0.03] focus:border-brand/40 focus:ring-4 focus:ring-brand/5 rounded-2xl pl-16 pr-44 text-[14px] font-medium placeholder-[#3A4A43] text-white transition-all outline-none disabled:opacity-50"
             />
-            <button className="absolute right-2 px-6 py-3 bg-brand hover:bg-brand-hover text-black font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] shadow-[0_4px_20px_rgba(0,229,143,0.2)]">
-              Fetch Video
+            <button 
+              onClick={handleFetchUrl}
+              disabled={loading || !urlValue.trim()}
+              className="absolute right-2 px-6 py-3 bg-brand hover:bg-brand-hover text-black font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] shadow-[0_4px_20px_rgba(0,229,143,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Fetch Video"}
             </button>
           </div>
         </div>
@@ -72,7 +132,10 @@ export default function CreateClipsForm() {
         </div>
 
         {/* Upload Area */}
-        <div className="group/upload relative" onClick={handleUploadClick}>
+        <div 
+          className={`group/upload relative ${loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`} 
+          onClick={handleUploadClick}
+        >
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -80,7 +143,7 @@ export default function CreateClipsForm() {
             className="hidden" 
             accept="video/*"
           />
-          <div className="w-full aspect-[21/9] sm:aspect-[4.5/1] border-2 border-dashed border-white/5 group-hover/upload:border-brand/20 rounded-[24px] bg-white/[0.01] group-hover/upload:bg-brand/[0.01] flex flex-col items-center justify-center gap-4 transition-all duration-500 cursor-pointer overflow-hidden">
+          <div className="w-full aspect-[21/9] sm:aspect-[4.5/1] border-2 border-dashed border-white/5 group-hover/upload:border-brand/20 rounded-[24px] bg-white/[0.01] group-hover/upload:bg-brand/[0.01] flex flex-col items-center justify-center gap-4 transition-all duration-500 overflow-hidden">
             <div className="w-14 h-14 rounded-2xl bg-[#0B100E] border border-white/5 flex items-center justify-center group-hover/upload:scale-110 group-hover/upload:border-brand/20 transition-all duration-500 relative">
               <div className="absolute inset-0 bg-brand/5 blur-xl group-hover/upload:bg-brand/10 transition-colors rounded-full" />
               {selectedFile ? (
@@ -99,6 +162,12 @@ export default function CreateClipsForm() {
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="text-red-400 text-sm text-center bg-red-400/10 py-3 rounded-xl border border-red-400/20">
+            {error}
+          </div>
+        )}
 
         {/* Controls Section */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
@@ -155,10 +224,17 @@ export default function CreateClipsForm() {
           </div>
           <button 
             onClick={handleGenerate}
-            className="w-full sm:w-auto px-10 py-4.5 bg-brand hover:shadow-[0_0_40px_rgba(0,229,143,0.4)] text-black font-black rounded-2xl text-[16px] flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            disabled={loading || !selectedFile}
+            className="w-full sm:w-auto px-10 py-4.5 bg-brand hover:shadow-[0_0_40px_rgba(0,229,143,0.4)] text-black font-black rounded-2xl text-[16px] flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>Generate Clips</span>
-            <Sparkles className="w-5 h-5 fill-black" />
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <span>Generate Clips</span>
+                <Sparkles className="w-5 h-5 fill-black" />
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
@@ -12,15 +13,18 @@ import {
   Settings, 
   Zap,
   ArrowUpRight,
-  X
+  X,
+  LogOut
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import Logo from "@/components/shared/Logo";
+import UserAvatar from "@/components/shared/UserAvatar";
 
 const menuItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { id: "projects", label: "Projects", icon: Video, href: "/projects" },
   { id: "platforms", label: "Platforms", icon: Share2, href: "/platforms" },
-  // { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
+  { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -30,25 +34,17 @@ interface SidebarProps {
 
 export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
-    <aside className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-[#050505] border-r border-white/5 flex flex-col transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${
-      isOpen ? "translate-x-0" : "-translate-x-full"
-    } shrink-0 h-screen sticky top-0`}>
-      {/* Logo & Close */}
+    <aside className={`fixed top-0 left-0 h-screen w-[280px] bg-[#080C0B] border-r border-white/5 z-50 flex flex-col transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="p-8 flex items-center justify-between">
-        <Link href="/dashboard" className="flex items-center gap-3 text-[20px] font-extrabold tracking-tight text-white group" onClick={onClose}>
-          <div className="w-[32px] h-[32px] bg-brand rounded-[10px] flex items-center justify-center text-black text-[18px] group-hover:scale-110 transition-transform">
-            ⚡
-          </div>
-          <span>ClipCash <span className="text-brand">AI</span></span>
-        </Link>
+        <Logo />
         <button 
           onClick={onClose}
-          className="lg:hidden p-2 text-[#5A6F65] hover:text-white transition-colors"
+          className="lg:hidden p-2 -mr-2 text-[#5A6F65] hover:text-white transition-colors"
         >
-          <X className="w-5 h-5" />
+          <X className="w-6 h-6" />
         </button>
       </div>
 
@@ -106,21 +102,25 @@ export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
       {/* User Info */}
       <div className="p-6 border-t border-white/5 bg-[#080C0B]/50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-zinc-800">
-            <img 
-              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || user?.email || 'Guest'}`} 
-              alt="avatar" 
-              className="w-full h-full object-cover" 
-            />
-          </div>
+          <UserAvatar user={user} />
           <div className="flex-1 min-w-0">
             <div className="text-[14px] font-bold text-white truncate">
-              {user?.profile?.username || user?.name || "Alex Rivera"}
+              {user?.profile?.username || user?.fullName || ""}
             </div>
             <div className="text-[11px] text-[#5A6F65] truncate">
-              {user?.email || "alex@clipcash.ai"}
+              {user?.email || ""}
             </div>
           </div>
+          <button 
+            onClick={() => logout()}
+            className="p-2 text-[#5A6F65] hover:text-red-400 transition-colors rounded-lg hover:bg-red-400/10 group/logout relative"
+            title="Logout"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded opacity-0 group-hover/logout:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none">
+              Logout
+            </span>
+          </button>
         </div>
       </div>
     </aside>
