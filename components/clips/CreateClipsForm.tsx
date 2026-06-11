@@ -2,25 +2,35 @@
 
 import React, { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  Link as LinkIcon, 
-  Upload, 
-  Sparkles, 
-  Check, 
+import {
+  Link as LinkIcon,
+  Upload,
+  Sparkles,
+  Check,
   Info,
-  Loader2
+  Loader2,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export default function CreateClipsForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [activePlatform, setActivePlatform] = useState("TikTok");
   const [autoGenerate, setAutoGenerate] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [urlValue, setUrlValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Three button states for the file upload path:
+  // "idle"      → no file selected       → "Upload Video" (disabled)
+  // "ready"     → file selected           → "Upload Video" (enabled, green)
+  // "uploading" → upload in progress      → spinner + "Uploading X%"
+  // "processing"→ upload done, 201 back   → spinner + "Generating Clips…"
+  type UploadState = "idle" | "ready" | "uploading" | "processing";
+  const [uploadState, setUploadState] = useState<UploadState>("idle");
 
   const platforms = [
     { name: "TikTok", icon: "📱" },
@@ -32,73 +42,192 @@ export default function CreateClipsForm() {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
+      setUploadState("ready");
       setError("");
     }
   };
 
   const handleUploadClick = () => {
+    if (loading) return;
     fileInputRef.current?.click();
+  };
+
+  // ── URL import ────────────────────────────────────────────────────────────
+
+  /**
+   * Validates any YouTube, TikTok, or Vimeo URL format.
+   * Handles: youtu.be, youtube.com/watch, youtube.com/shorts,
+   *          tiktok.com/@user/video, vm.tiktok.com, vimeo.com
+   */
+  const isSupportedUrl = (val: string): boolean => {
+    try {
+      const { hostname, pathname } = new URL(val);
+      const host = hostname.replace("www.", "");
+      if (host === "youtube.com" || host === "youtu.be") return true;
+      if (host === "tiktok.com" || host === "vm.tiktok.com" || host === "vt.tiktok.com") return true;
+      if (host === "vimeo.com") return true;
+      return false;
+    } catch {
+      // URL constructor throws on invalid URLs
+      return false;
+    }
+  };
+
+  /**
+   * Maps the UI platform name to the value the backend expects.
+   */
+  const platformToApiValue = (name: string): string => {
+    if (name === "YT Shorts") return "youtube";
+    return name.toLowerCase(); // "TikTok" → "tiktok", "Instagram" → "instagram"
   };
 
   const handleFetchUrl = async () => {
     if (!urlValue.trim()) return;
+
+    if (!isSupportedUrl(urlValue.trim())) {
+      setError("Only YouTube, TikTok, and Vimeo URLs are supported.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
       const response = await apiClient.post("/videos/from-url", {
         url: urlValue.trim(),
-        targetPlatforms: [activePlatform.toLowerCase()],
+        targetPlatforms: [platformToApiValue(activePlatform)],
         style: "viral",
       });
-      const video = response.data;
-      
-      if (!video?.id) {
+      const data = response.data;
+      // Backend returns { video: { id: ... } } or { id: ... }
+      const videoId = data?.video?.id ?? data?.id ?? data?.data?.id ?? data?.videoId;
+      if (!videoId) {
+        console.error("[from-url] Unexpected response shape:", data);
         throw new Error("Failed to get video ID from response.");
       }
-      
-      router.push(`/dashboard/processing?videoId=${video.id}`);
+      router.push(`/dashboard/processing?videoId=${videoId}`);
     } catch (err: any) {
-      const message = err.response?.data?.message || "Failed to submit URL. Please try again.";
+      if (err.response?.status === 401) {
+        setError("Session expired — redirecting to login…");
+        return;
+      }
+      if (err.response?.status === 429) {
+        setError("Too many requests. Please wait a moment and try again.");
+        return;
+      }
+      const message =
+        err.response?.data?.message || "Failed to submit URL. Please try again.";
       setError(Array.isArray(message) ? message[0] : message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGenerate = async () => {
+  // ── File upload → navigate to processing ──────────────────────────────────
+
+  const handleUploadAndGenerate = async () => {
     if (!selectedFile) return;
+
     setLoading(true);
+    setUploadState("uploading");
     setError("");
+    setUploadProgress(0);
+
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("title", selectedFile.name);
+      formData.append("title", selectedFile.name.replace(/\.[^/.]+$/, ""));
       formData.append("sourceType", "upload");
       formData.append("style", "viral");
 
-      const response = await apiClient.post("/videos", formData);
-      const video = response.data;
-      
-      if (!video?.id) {
+      const response = await apiClient.post("/videos", formData, {
+        // Let the browser set Content-Type with multipart boundary
+        headers: { "Content-Type": undefined },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const pct = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setUploadProgress(pct);
+          }
+        },
+        timeout: 10 * 60 * 1000, // 10 min for large files
+      });
+
+      const data = response.data;
+      const videoId = data?.video?.id ?? data?.id ?? data?.data?.id ?? data?.videoId;
+      if (!videoId) {
+        console.error("[upload] Unexpected response shape:", data);
         throw new Error("Failed to get video ID from response.");
       }
-      
-      router.push(`/dashboard/processing?videoId=${video.id}`);
+
+      setUploadState("processing");
+      setUploadProgress(100);
+      router.push(`/dashboard/processing?videoId=${videoId}`);
     } catch (err: any) {
-      const message = err.response?.data?.message || "Upload failed. Please try again.";
-      setError(Array.isArray(message) ? message[0] : message);
+      const status = err.response?.status;
+      if (status === 401) {
+        setError("Session expired — redirecting to login…");
+        setUploadState(selectedFile ? "ready" : "idle");
+        return;
+      }
+      let message =
+        err.response?.data?.message ||
+        err.message ||
+        "Upload failed. Please try again.";
+      if (Array.isArray(message)) message = message[0];
+      if (status === 429) message = "Upload limit reached (3/min). Please wait a moment.";
+      if (status === 400) message = "Invalid file. Use MP4, MOV, AVI, WEBM or MPEG under 2GB.";
+      if (status === 500) message = "Server error during upload. Please try again shortly.";
+      setError(message);
+      setUploadState(selectedFile ? "ready" : "idle");
     } finally {
       setLoading(false);
+      setUploadProgress(0);
     }
+  };
+
+  // ── Button label / state ───────────────────────────────────────────────────
+
+  const buttonLabel = () => {
+    if (uploadState === "uploading") {
+      return (
+        <>
+          <Loader2 className="w-5 h-5 animate-spin" />
+          {uploadProgress > 0 ? `Uploading ${uploadProgress}%` : "Uploading…"}
+        </>
+      );
+    }
+    if (uploadState === "processing") {
+      return (
+        <>
+          <Loader2 className="w-5 h-5 animate-spin" />
+          Generating Clips…
+        </>
+      );
+    }
+    if (uploadState === "ready") {
+      return (
+        <>
+          <Sparkles className="w-5 h-5 fill-black" />
+          Generate Clips
+        </>
+      );
+    }
+    // idle — no file selected
+    return (
+      <>
+        <Upload className="w-5 h-5" />
+        Upload Video
+      </>
+    );
   };
 
   return (
     <div className="w-full bg-[#080C0B]/80 backdrop-blur-3xl border border-brand/20 rounded-[32px] p-6 sm:p-10 shadow-[0_0_100px_rgba(0,229,143,0.03),inset_0_0_20px_rgba(0,229,143,0.05)] relative overflow-hidden group">
-      {/* Glow Effect Corner */}
       <div className="absolute -top-24 -right-24 w-48 h-48 bg-brand/5 blur-[80px] rounded-full pointer-events-none group-hover:bg-brand/10 transition-all duration-700" />
-      
+
       <div className="space-y-8">
-        {/* Import from URL Section */}
+        {/* ── URL import ── */}
         <div className="space-y-4">
           <label className="text-[13px] font-bold text-[#5A6F65] uppercase tracking-wider block ml-1">
             Import from URL
@@ -107,40 +236,47 @@ export default function CreateClipsForm() {
             <div className="absolute left-6 text-[#3A4A43] group-focus-within/input:text-brand transition-colors">
               <LinkIcon className="w-5 h-5" />
             </div>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={urlValue}
               onChange={(e) => setUrlValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleFetchUrl()}
               disabled={loading}
-              placeholder="Paste YouTube, TikTok or Twitch link here..." 
+              placeholder="Paste YouTube, TikTok or Vimeo link here…"
               className="w-full h-14 bg-[#0B100E] border border-white/[0.03] focus:border-brand/40 focus:ring-4 focus:ring-brand/5 rounded-2xl pl-16 pr-44 text-[14px] font-medium placeholder-[#3A4A43] text-white transition-all outline-none disabled:opacity-50"
             />
-            <button 
+            <button
               onClick={handleFetchUrl}
               disabled={loading || !urlValue.trim()}
               className="absolute right-2 px-6 py-3 bg-brand hover:bg-brand-hover text-black font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] shadow-[0_4px_20px_rgba(0,229,143,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Fetch Video"}
+              {loading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                "Fetch Video"
+              )}
             </button>
           </div>
         </div>
 
-        {/* Divider */}
+        {/* ── Divider ── */}
         <div className="relative flex items-center justify-center py-2">
           <div className="absolute left-0 right-0 h-px bg-white/[0.03]" />
-          <span className="relative z-10 px-6 bg-[#080C0B] text-[12px] font-black text-[#2A3B34] uppercase tracking-[0.2em]">OR</span>
+          <span className="relative z-10 px-6 bg-[#080C0B] text-[12px] font-black text-[#2A3B34] uppercase tracking-[0.2em]">
+            OR
+          </span>
         </div>
 
-        {/* Upload Area */}
-        <div 
-          className={`group/upload relative ${loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`} 
+        {/* ── File upload area ── */}
+        <div
+          className={`group/upload relative ${loading ? "pointer-events-none opacity-50" : "cursor-pointer"}`}
           onClick={handleUploadClick}
         >
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            className="hidden" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
             accept="video/*"
           />
           <div className="w-full aspect-[21/9] sm:aspect-[4.5/1] border-2 border-dashed border-white/5 group-hover/upload:border-brand/20 rounded-[24px] bg-white/[0.01] group-hover/upload:bg-brand/[0.01] flex flex-col items-center justify-center gap-4 transition-all duration-500 overflow-hidden">
@@ -154,87 +290,128 @@ export default function CreateClipsForm() {
             </div>
             <div className="text-center space-y-1 relative z-10">
               <p className="text-[16px] font-bold text-white group-hover/upload:text-brand transition-colors">
-                {selectedFile ? selectedFile.name : "Click to upload or drag and drop"}
+                {selectedFile
+                  ? selectedFile.name
+                  : "Click to upload or drag and drop"}
               </p>
               <p className="text-[12px] font-medium text-[#3A4A43]">
-                {selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB` : "MP4, MOV, WEBM up to 2GB"}
+                {selectedFile
+                  ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB — ready to upload`
+                  : "MP4, MOV, WEBM up to 2GB"}
               </p>
             </div>
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <div className="text-red-400 text-sm text-center bg-red-400/10 py-3 rounded-xl border border-red-400/20">
             {error}
           </div>
         )}
 
-        {/* Controls Section */}
+        {/* Upload progress bar */}
+        {loading && uploadProgress > 0 && uploadProgress < 100 && (
+          <div className="space-y-2">
+            <div className="flex justify-between text-[12px] font-bold text-[#5A6F65]">
+              <span>Uploading to server…</span>
+              <span className="text-brand">{uploadProgress}%</span>
+            </div>
+            <div className="h-2 bg-[#0B100E] rounded-full overflow-hidden border border-white/5">
+              <div
+                className="h-full bg-brand rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(0,229,143,0.4)]"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-[#3A4A43] text-center">
+              Large files may take a moment — do not close this tab
+            </p>
+          </div>
+        )}
+
+        {/* ── Platform + toggle ── */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
-          {/* Target Platforms */}
           <div className="space-y-4 flex-1">
             <label className="text-[13px] font-bold text-[#5A6F65] uppercase tracking-wider block ml-1">
               Target Platforms
             </label>
             <div className="flex flex-wrap gap-3">
               {platforms.map((platform) => (
-                <button 
+                <button
                   key={platform.name}
                   onClick={() => setActivePlatform(platform.name)}
                   className={`px-5 py-2.5 rounded-full border text-[13px] font-bold flex items-center gap-2 transition-all duration-300 ${
-                    activePlatform === platform.name 
-                      ? "bg-brand/10 border-brand text-brand shadow-[0_0_15px_rgba(0,229,143,0.15)]" 
+                    activePlatform === platform.name
+                      ? "bg-brand/10 border-brand text-brand shadow-[0_0_15px_rgba(0,229,143,0.15)]"
                       : "bg-[#0B100E] border-white/5 text-[#5A6F65] hover:text-white hover:border-white/10"
                   }`}
                 >
-                  <span className={activePlatform === platform.name ? "opacity-100" : "opacity-40 grayscale group-hover:grayscale-0 transition-all"}>
+                  <span
+                    className={
+                      activePlatform === platform.name
+                        ? "opacity-100"
+                        : "opacity-40 grayscale"
+                    }
+                  >
                     {platform.icon}
                   </span>
                   {platform.name}
-                  {activePlatform === platform.name && <Check className="w-3.5 h-3.5 ml-1" />}
+                  {activePlatform === platform.name && (
+                    <Check className="w-3.5 h-3.5 ml-1" />
+                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Auto Generate Toggle */}
           <div className="bg-[#0B100E]/50 border border-white/5 rounded-[24px] p-6 lg:min-w-[320px] flex items-center justify-between group/toggle hover:border-brand/20 transition-all">
             <div className="space-y-1">
-              <p className="text-[14px] font-bold text-white group-hover/toggle:text-brand transition-colors">Auto-generate clips</p>
-              <p className="text-[11px] font-medium text-[#5A6F65]">Extract 50–200 viral moments</p>
+              <p className="text-[14px] font-bold text-white group-hover/toggle:text-brand transition-colors">
+                Auto-generate clips
+              </p>
+              <p className="text-[11px] font-medium text-[#5A6F65]">
+                Extract 50–200 viral moments
+              </p>
             </div>
-            <button 
+            <button
               onClick={() => setAutoGenerate(!autoGenerate)}
               className={`w-12 h-6 rounded-full relative transition-all duration-300 ${
                 autoGenerate ? "bg-brand" : "bg-[#1A221E]"
               }`}
             >
-              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${
-                autoGenerate ? "left-7" : "left-1"
-              }`} />
+              <div
+                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${
+                  autoGenerate ? "left-7" : "left-1"
+                }`}
+              />
             </button>
           </div>
         </div>
 
-        {/* Footer Action Row */}
+        {/* ── Footer action row ── */}
         <div className="pt-6 border-t border-white/[0.03] flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2.5 text-[#5A6F65]">
             <Info className="w-4 h-4" />
-            <span className="text-[13px] font-medium tracking-tight">Estimated processing time: <span className="text-white">4–6 minutes</span></span>
+            <span className="text-[13px] font-medium tracking-tight">
+              Estimated processing time:{" "}
+              <span className="text-white">4–6 minutes</span>
+            </span>
           </div>
-          <button 
-            onClick={handleGenerate}
+
+          {/* Dynamic button: idle → Upload Video | ready → Generate Clips */}
+          <button
+            onClick={handleUploadAndGenerate}
             disabled={loading || !selectedFile}
-            className="w-full sm:w-auto px-10 py-4.5 bg-brand hover:shadow-[0_0_40px_rgba(0,229,143,0.4)] text-black font-black rounded-2xl text-[16px] flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`w-full sm:w-auto px-10 py-4 rounded-2xl text-[16px] font-black flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:cursor-not-allowed
+              ${
+                uploadState === "ready"
+                  ? "bg-brand hover:bg-brand-hover text-black shadow-[0_0_30px_rgba(0,229,143,0.3)] hover:shadow-[0_0_40px_rgba(0,229,143,0.5)]"
+                  : uploadState === "idle"
+                  ? "bg-[#0B100E] border border-white/10 text-[#5A6F65] opacity-50 cursor-not-allowed"
+                  : "bg-brand text-black opacity-80"
+              }`}
           >
-            {loading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <>
-                <span>Generate Clips</span>
-                <Sparkles className="w-5 h-5 fill-black" />
-              </>
-            )}
+            {buttonLabel()}
           </button>
         </div>
       </div>

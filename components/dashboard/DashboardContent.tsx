@@ -40,7 +40,8 @@ export default function DashboardContent({ stats: initialStats, projects: initia
     try {
       const nextPage = page + 1;
       const response = await getVideos(nextPage);
-      const newItems = response.items || response;
+      // getVideos now returns { items, total }
+      const newItems = response.items || [];
       setAllProjects(prev => [...prev, ...newItems]);
       setPage(nextPage);
     } catch (error) {

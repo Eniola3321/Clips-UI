@@ -9,6 +9,7 @@ interface SocialConnectStepProps {
 
 export default function SocialConnectStep({ onComplete }: SocialConnectStepProps) {
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const platforms = [
     {
@@ -36,17 +37,23 @@ export default function SocialConnectStep({ onComplete }: SocialConnectStepProps
 
   const handleConnect = async (platformId: string) => {
     setConnecting(platformId);
+    setConnectError(null);
     try {
       const response = await apiClient.get(`/platforms/connect/${platformId}`);
-      // The backend returns { url: "https://..." } for OAuth redirect
       const { url } = response.data;
       if (url) {
         window.location.href = url;
       }
-    } catch (error) {
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 500) {
+        setConnectError(
+          "Platform connection is temporarily unavailable. Please skip for now and try again from the Platforms page."
+        );
+      } else {
+        setConnectError(`Failed to connect to ${platformId}. Please try again.`);
+      }
       console.error(`Failed to connect to ${platformId}:`, error);
-      // Fallback to manual completion if API fails during onboarding phase
-      onComplete();
     } finally {
       setConnecting(null);
     }
@@ -97,6 +104,12 @@ export default function SocialConnectStep({ onComplete }: SocialConnectStepProps
           Skip for now
         </button>
       </div>
+
+      {connectError && (
+        <p className="text-center text-red-400 text-[13px] mt-4 max-w-md mx-auto">
+          {connectError}
+        </p>
+      )}
     </div>
   );
 }

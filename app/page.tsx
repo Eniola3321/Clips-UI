@@ -44,7 +44,7 @@ export default function Home() {
 
         {/* Right side - Login Modal */}
         <div className="w-full max-w-[440px] flex justify-end">
-          <AuthForm mode="login" />
+          <AuthForm mode="signup" />
         </div>
       </div>
     </LandingLayout>

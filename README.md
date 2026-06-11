@@ -1,97 +1,153 @@
-# Clips-UI Project Assessment & Roadmap
+  # ClipCash UI
 
-This document provides a comprehensive review of the current state of the Clips-UI project, its production readiness, and a detailed roadmap for API integration and optimization.
-
----
-
-## 📋 Codebase Assessment
-
-### 1. Architecture & Structure
-- **Framework**: Next.js 16/19 (App Router) - **Excellent**. Using the latest React 19 features.
-- **Styling**: Tailwind CSS 4.0 - **Modern**. Efficient use of the new `@theme` and `@layer` directives.
-- **Organization**:
-    - `app/`: Logical route structure (dashboard, projects, clips, auth).
-    - `components/`: Well-organized by feature and shared components.
-    - `lib/`: Contains `queries.ts` and `apiClient.ts` patterns for abstraction.
-
-### 2. Production Readiness
-| Category | Status | Notes |
-| :--- | :--- | :--- |
-| **UI/UX** | ✅ Ready | High-fidelity design, responsive, and smooth animations. |
-| **Code Quality** | ✅ Ready | Clean TypeScript usage and readable component structures. |
-| **Authentication** | ✅ Secure | Cookie-based session management with `proxy.ts` redirects. |
-| **Optimization** | ✅ Optimized | Using Server Components, `next/image`, and TanStack Query. |
-| **Data Handling** | ⚠️ Mocked | Hardcoded data in `lib/queries.ts` needs to be fetched from real APIs. |
-| **Security** | ✅ Improved | Environment safety and server-side route protection active. |
+Next.js 15 frontend for ClipCash — an AI-powered video clipping platform.
 
 ---
 
-## 🔌 API Integration Roadmap
+## Stack
 
-The frontend is **"Structure Ready"** but **"Data Empty"**. You can start consuming APIs immediately by following these steps:
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **State / Data**: TanStack Query v5
+- **HTTP**: Axios (via `lib/apiClient.ts`)
+- **Auth**: HTTP-only JWT cookies (set by backend)
+- **Wallet**: Stellar Wallets Kit v2 (`@creit-tech/stellar-wallets-kit`)
+- **Testing**: Vitest + Playwright
 
-### Step 1: Replace Mock Data Logic
-Update [queries.ts](file:///c:/Users/EMMA/Desktop/Clips/Clips-UI/lib/queries.ts) to call your real backend endpoints instead of simulating delays.
+---
 
-### Step 2: Environment Variables
-Create a `.env.local` file to store your backend URL:
-```env
-NEXT_PUBLIC_API_URL=https://api.yourbackend.com/v1
+## Environment Variables
+
+Create `.env.local` in the project root:
+
+```bash
+# Server-only — never sent to the browser
+API_URL=https://clipcash-api.onrender.com
+
+# Client-side — points to the Next.js proxy route
+NEXT_PUBLIC_API_URL=/api/proxy
+
+# Stellar network: leave empty for testnet, set to "mainnet" for production
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
 ```
 
-### Step 3: Component Data Injection
-Refine component data props to match the exact JSON structure of your backend responses.
+> Never set `NEXT_PUBLIC_*` to the real backend URL. The proxy in `app/api/proxy/[...path]/route.ts` keeps it server-side only.
 
 ---
 
-## 🛠 Problems & Solutions (Fixed)
+## Getting Started
 
-| Problem | Solution |
-| :--- | :--- |
-| **Hardcoded Stats** | *Pending*: Map real `/api/user/stats` to [StatCard](file:///c:/Users/EMMA/Desktop/Clips/Clips-UI/components/dashboard/StatCard.tsx). |
-| **Security Risk (localStorage)** | ✅ Fixed: Moved to secure cookie-based session in [AuthProvider.tsx](file:///c:/Users/EMMA/Desktop/Clips/Clips-UI/components/AuthProvider.tsx). |
-| **Flash of Unauthenticated Content** | ✅ Fixed: Implemented server-side `proxy.ts`. |
-| **Duplicate Logic** | ✅ Fixed: Created `DashboardLayout` and `LandingLayout` shared systems. |
-| **Broken Image Links** | ✅ Fixed: Replaced local mock paths with verified Unsplash URLs and added fallbacks. |
-| **Performance Bottlenecks** | ✅ Fixed: Implemented Server Components and Client-Side Caching (React Query). |
-
----
-
-## 🔐 Security Audit & Vulnerability Report
-
-### 1. Audit Findings Summary
-| Category | Status | Risk Level | Action Item |
-| :--- | :--- | :--- | :--- |
-| **Hardcoded Secrets** | ✅ Clear | Low | No real API keys or production secrets found. |
-| **Data Storage** | ✅ Secure | Low | Moved to secure Cookies for session persistence. |
-| **Environment Safety** | ✅ Secure | Low | `.env` files correctly excluded via `.gitignore`. |
-| **Auth Redirects** | ✅ Secure | Low | Implemented server-side `proxy.ts`. |
-
-### 2. Recommendations for Backend Integration
-
-#### **Backend Token Validation**
-Once you move to a real backend, the frontend must strictly validate tokens.
-- **Action**: Ensure all API requests include a Bearer token in the `Authorization` header and that the backend validates this token for every protected endpoint.
-
-#### **Environment Management**
-- **Action**: Standardize API URLs and secrets in a shared `.env.example` file for the development team.
+```bash
+npm install
+npm run dev        # http://localhost:3000
+npm run build      # production build
+npm run test       # unit tests (vitest)
+npm run test:e2e   # e2e tests (playwright)
+```
 
 ---
 
-## 🛠 Production Readiness & Quality Audit
+## Architecture
 
-### 1. Future Improvements
-| Area | Status | Recommendation |
-| :--- | :--- | :--- |
-| **Testing** | ⚠️ Missing | Implement Vitest (Unit) and Playwright (E2E) for core flows. |
-| **Error Handling** | ⚠️ Basic | Add global `error.tsx` and component-level Error Boundaries. |
-| **SEO & Metadata** | ⚠️ Missing | Configure `metadata` in `layout.tsx` for better social sharing. |
+### Proxy Route
+All API calls go through `app/api/proxy/[...path]/route.ts`. This:
+- Keeps the real backend URL out of the browser bundle
+- Forwards auth cookies automatically
+- Handles SSE streaming for real-time progress
+- Returns `503` instead of crashing when the backend is waking up (Render free tier)
+
+### Auth Flow
+```
+Login  → POST /auths/login  → GET /users/me → /dashboard
+Signup → POST /auths/signup → GET /users/me → /onboarding → /dashboard
+Google → /api/proxy/auths/google (redirects via backend OAuth)
+Wallet → connect wallet → /onboarding?wallet=<address> → signup form
+```
+
+Session is maintained via HTTP-only cookies. `AuthProvider` protects all routes under `/dashboard`, `/projects`, `/clips`, `/platforms`, `/settings`.
+
+### Video Upload Flow
+```
+Select file → click "Generate Clips"
+  → POST /api/proxy/videos (multipart)
+  → 201 { id: videoId }
+  → /dashboard/processing?videoId=<id>
+  → SSE: GET /api/proxy/events/processing-progress/<id>
+  → progress bar updates live
+  → status: "done" → /projects?videoId=<id>
+  → clips appear in grid with preview + download
+```
 
 ---
 
-## 🏁 Summary: Is it "Good to Go"?
+## Pages
 
-**Yes, for Development.** The UI is exceptional and the architectural foundations (caching, layouts, auth) are production-grade.
-**No, for Production.** You must replace the mock data layer with a real API client before going live.
+| Route | Description |
+|-------|-------------|
+| `/` | Landing page with URL import form |
+| `/login` | Login / signup |
+| `/onboarding` | New user profile setup (2 steps) |
+| `/dashboard` | Stats + recent projects |
+| `/clips` | Upload video or paste URL |
+| `/projects` | Generated clips grid with preview |
+| `/platforms` | Connect social accounts + Stellar wallet |
+| `/settings` | Password change, account deletion |
+| `/dashboard/processing` | Live AI processing progress (SSE) |
 
-**Next Immediate Action**: Set up your backend API contract and begin replacing the `MockApi` methods one by one.
+---
+
+## What's Working
+
+- ✅ Email signup / login
+- ✅ Google OAuth (via backend redirect)
+- ✅ Stellar wallet connect (Freighter, Lobstr, Albedo, Rabet)
+- ✅ New user onboarding (username + niche → social connect)
+- ✅ Returning users go straight to dashboard (no onboarding loop)
+- ✅ Video upload via file (multipart through proxy)
+- ✅ YouTube/TikTok/Vimeo URL import
+- ✅ Live AI processing progress via SSE
+- ✅ Clip grid with preview modal (video player), download, delete
+- ✅ Batch post clips to TikTok
+- ✅ Batch delete clips (with confirmation)
+- ✅ Social platform connect via OAuth (TikTok, Instagram, YouTube, X)
+- ✅ Stellar wallet display in Platforms page
+- ✅ Password change + account deletion in Settings
+- ✅ Proxy handles ECONNRESET gracefully (returns 503 with friendly message)
+
+---
+
+## What the Backend Still Needs
+
+These items are blocked on backend changes:
+
+| Feature | What's needed |
+|---------|---------------|
+| Reliable onboarding routing | `GET /users/me` should return `onboardingStep` (number) or `username`. Currently returns only `{ id, email, fullName, picture }` |
+| Wallet auth | `POST /auths/wallet { stellarAddress }` endpoint for wallet-only login |
+| Social posting platform selection | `POST /platforms/post-clip` currently hardcoded to `["tiktok"]` — needs UI to select platforms once backend is confirmed |
+| Platform OAuth (500 error) | `GET /platforms/connect/:platform` returns 500 — check WoopSocial API credentials in Render environment variables |
+| Video upload + AI processing (500 error) | `POST /videos` returns 500 after upload — check Cloudinary credentials and ffmpeg availability on the Render instance |
+
+---
+
+## Known Limitations
+
+- **Render free tier cold starts**: The backend sleeps after 15 min of inactivity. First request returns `ECONNRESET` / 503. The proxy handles this gracefully — just retry after ~30 seconds.
+- **`ClipsStats` component** (`components/clips/ClipsStats.tsx`) shows static marketing copy ("98% accuracy"). These should be replaced with real analytics once the backend exposes them.
+- **`RevenueChart`** (`components/dashboard/RevenueChart.tsx`) uses hardcoded chart points. Replace with real earnings data when available.
+- **`PlatformDistribution`** (`components/dashboard/PlatformDistribution.tsx`) shows hardcoded percentages. Wire to real posting stats when available.
+- **`AIInsightCard`** (`components/dashboard/AIInsightCard.tsx`) shows a static insight string. Wire to a real AI recommendation endpoint when available.
+- **Edit clip** button in `ClipCard` is a placeholder — the edit flow (trim points, captions, audio overlay) is not yet implemented.
+
+---
+
+## Security Notes
+
+- Backend URL never appears in the browser bundle (`API_URL` is server-only)
+- Google OAuth redirect goes through `/api/proxy/auths/google` (not directly to the backend)
+- Auth cookies are HTTP-only — not readable by JavaScript
+- File upload validates MIME type client-side; backend enforces the 2GB limit
+- `window.confirm()` is removed from delete flows — replaced with inline confirmation UI
+- `alert()` is removed from all flows — replaced with in-app toast notifications
+- Stellar wallet address is stored in `WalletProvider` state only (removed from `localStorage`)

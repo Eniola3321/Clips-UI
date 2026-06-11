@@ -16,11 +16,13 @@ interface PlatformCardProps {
 
 export default function PlatformCard({ name, description, icon: Icon, status, ctaText, username, variant = "vertical" }: PlatformCardProps) {
   const [loading, setLoading] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const isActive = status === "ACTIVE" || status === "LINKED";
 
   const handleConnect = async () => {
     if (isActive) return;
     setLoading(true);
+    setConnectError(null);
     try {
       const platformKey = name.toLowerCase().split(' / ')[0];
       const response = await apiClient.get(`/platforms/connect/${platformKey}`);
@@ -28,7 +30,13 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
       if (url) {
         window.location.href = url;
       }
-    } catch (error) {
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 500) {
+        setConnectError("Connection temporarily unavailable. Please try again later.");
+      } else {
+        setConnectError("Failed to connect. Please try again.");
+      }
       console.error(`Failed to connect to ${name}:`, error);
     } finally {
       setLoading(false);
@@ -37,7 +45,8 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
 
   if (variant === "horizontal") {
     return (
-      <div className="bg-[#111111]/40 backdrop-blur-md border border-white/[0.03] rounded-[24px] p-6 flex items-center justify-between group hover:border-brand/20 transition-all duration-300 relative overflow-hidden">
+      <div className="flex flex-col gap-2">
+        <div className="bg-[#111111]/40 backdrop-blur-md border border-white/[0.03] rounded-[24px] p-6 flex items-center justify-between group hover:border-brand/20 transition-all duration-300 relative overflow-hidden">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 rounded-full bg-[#1A1A1A] border border-white/5 flex items-center justify-center text-[#5A6F65] group-hover:text-brand transition-colors">
             <Icon className="w-7 h-7" />
@@ -69,12 +78,17 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
             </button>
           )}
         </div>
+        </div>
+        {connectError && (
+          <p className="text-red-400 text-[12px] text-center px-2">{connectError}</p>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="bg-[#111111]/40 backdrop-blur-md border border-white/[0.03] rounded-[24px] p-8 flex flex-col gap-8 group hover:border-brand/20 transition-all duration-300 relative overflow-hidden">
+    <div className="flex flex-col gap-2">
+      <div className="bg-[#111111]/40 backdrop-blur-md border border-white/[0.03] rounded-[24px] p-8 flex flex-col gap-8 group hover:border-brand/20 transition-all duration-300 relative overflow-hidden">
       <div className="flex items-start justify-between">
         <div className="w-16 h-16 rounded-[22px] bg-[#1A1A1A] border border-white/5 flex items-center justify-center text-[#5A6F65] group-hover:text-brand transition-all duration-500 shadow-inner">
           <Icon className="w-8 h-8" />
@@ -109,6 +123,10 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
           </>
         )}
       </button>
+      </div>
+      {connectError && (
+        <p className="text-red-400 text-[12px] text-center px-2">{connectError}</p>
+      )}
     </div>
   );
 }

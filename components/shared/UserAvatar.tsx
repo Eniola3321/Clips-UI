@@ -14,12 +14,13 @@ export default function UserAvatar({ user, size = "md", className = "" }: UserAv
     lg: "w-12 h-12"
   };
 
-  const seed = user?.fullName || user?.profile?.username || user?.email || "Guest";
+  const seed = user?.fullName || user?.username || user?.profile?.username || user?.email || "Guest";
+  const avatarUrl = user?.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
 
   return (
     <div className={`${sizeClasses[size]} rounded-full border border-white/10 overflow-hidden bg-zinc-800 relative ${className}`}>
       <Image 
-        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`} 
+        src={avatarUrl} 
         alt="User Avatar" 
         fill
         sizes="(max-width: 768px) 32px, 48px"

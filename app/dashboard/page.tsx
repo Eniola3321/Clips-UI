@@ -1,42 +1,43 @@
 import React from "react";
 import DashboardContent from "@/components/dashboard/DashboardContent";
+import apiClient from "@/lib/apiClient";
 
-// This would be a real server-side fetch in a production app
 async function getDashboardData() {
-  // Simulate server-side delay
-  // await new Promise(resolve => setTimeout(resolve, 100));
+  try {
+    const [videosRes, platformsRes] = await Promise.all([
+      apiClient.get("/videos?page=1&limit=6"),
+      apiClient.get("/platforms"),
+    ]);
 
-  return {
-    stats: {
-      earnings: "$12,450.80",
-      clips: "142",
-      platforms: "4",
-    },
-    projects: [
-      {
-        title: "Apex Legends Clutch Moments",
-        clipsCount: 2,
-        status: "processing",
-        thumbnail: "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=400&h=400"
+    const videos = videosRes.data.data || (Array.isArray(videosRes.data) ? videosRes.data : []);
+    const totalClips = videos.reduce((acc: number, v: any) => acc + (v.clipsCount || 0), 0);
+
+    return {
+      stats: {
+        earnings: "—",
+        clips: totalClips.toString(),
+        platforms: String(platformsRes.data.accountCount || 0),
       },
-      {
-        title: "React Native Tutorial 2024",
-        clipsCount: 12,
-        status: "completed",
-        thumbnail: "https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&q=80&w=400&h=400"
-      },
-      {
-        title: "Weekly Podcast Highlight #42",
-        clipsCount: 5,
-        status: "completed",
-        thumbnail: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&q=80&w=400&h=400"
-      }
-    ]
-  };
+      projects: videos.map((video: any) => ({
+        id: video.id,
+        title: video.title || "Untitled Video",
+        clipsCount: video.clipsCount || 0,
+        status: video.status || "completed",
+        thumbnail: video.thumbnail || null,
+      })),
+      totalVideos: videosRes.data.total || videos.length,
+    };
+  } catch {
+    // Return empty state if user is not logged in or API is unreachable
+    return {
+      stats: { earnings: "—", clips: "0", platforms: "0" },
+      projects: [],
+      totalVideos: 0,
+    };
+  }
 }
 
 export default async function DashboardPage() {
   const data = await getDashboardData();
-
   return <DashboardContent stats={data.stats} projects={data.projects} />;
 }

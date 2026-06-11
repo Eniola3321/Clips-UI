@@ -12,21 +12,23 @@ import {
   InstagramIcon, 
   TikTokIcon, 
   YoutubeIcon, 
-  TwitterIcon, 
-  PhantomIcon, 
-  MetaMaskIcon 
+  TwitterIcon,
 } from "@/components/shared/Icons";
 import { 
   Search, 
   Bell, 
   Share2, 
   Wallet,
-  Loader2
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
+import { useWallet } from "@/components/WalletProvider";
+import WalletButton from "@/components/shared/WalletButton";
 
 export default function PlatformsContent() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const { address, connect, disconnect, isConnecting } = useWallet();
 
   useEffect(() => {
     const fetchPlatforms = async () => {
@@ -146,25 +148,46 @@ export default function PlatformsContent() {
           <SectionHeader 
             title="Web3 Wallets" 
             icon={Wallet} 
-            label="REWARDS DESTINATION" 
+            label={address ? "1 CONNECTED" : "REWARDS DESTINATION"}
           />
-          <div className="grid grid-cols-2 gap-6">
-            <PlatformCard 
-              name="Phantom Wallet" 
-              description="Solana Network"
-              icon={PhantomIcon} 
-              status="NOT LINKED" 
-              ctaText="Connect Phantom"
-              variant="horizontal"
-            />
-            <PlatformCard 
-              name="MetaMask" 
-              description="Ethereum / L2s"
-              icon={MetaMaskIcon} 
-              status="NOT LINKED" 
-              ctaText="Connect MetaMask"
-              variant="horizontal"
-            />
+          <div className="bg-[#111111]/40 backdrop-blur-md border border-white/[0.03] rounded-[24px] p-6 flex items-center justify-between group hover:border-brand/20 transition-all duration-300 relative overflow-hidden">
+            {/* subtle glow when connected */}
+            {address && (
+              <div className="absolute inset-0 bg-brand/[0.03] pointer-events-none" />
+            )}
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center">
+                <Wallet className="w-6 h-6 text-brand" />
+              </div>
+              <div>
+                <p className="font-bold text-white text-[15px]">Stellar Wallet</p>
+                {address ? (
+                  <p className="text-xs text-brand font-mono mt-0.5">
+                    {address.slice(0, 8)}…{address.slice(-6)}
+                  </p>
+                ) : (
+                  <p className="text-xs text-[#5A6F65] mt-0.5">Freighter · xBull · Lobstr · Albedo</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {address ? (
+                <>
+                  <div className="flex items-center gap-1.5 text-brand text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4" />
+                    CONNECTED
+                  </div>
+                  <button
+                    onClick={disconnect}
+                    className="text-xs text-[#5A6F65] hover:text-red-400 transition-colors font-medium border border-white/5 hover:border-red-400/30 px-3 py-1.5 rounded-xl"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <WalletButton className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand/10 border border-brand/20 text-brand hover:bg-brand/20 transition-all font-bold text-sm disabled:opacity-60" />
+              )}
+            </div>
           </div>
         </section>
 

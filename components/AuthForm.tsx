@@ -1,26 +1,40 @@
 "use client";
 
 import React, { useState } from "react";
-import { Loader2, Wallet } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import apiClient from "@/lib/apiClient";
+import WalletButton from "@/components/shared/WalletButton";
+import { signAuthMessage, ensureHexSignature } from "@/lib/wallet";
 
-const authSchema = z.object({
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+const emailAuthSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   fullName: z.string().min(2, "Name must be at least 2 characters").optional(),
 });
 
-// Local inline SVG for Google/Apple to avoid external dependencies perfectly matching
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
 const GoogleIcon = () => (
-  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#fff"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff"/></svg>
+  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"/>
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff"/>
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#fff"/>
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff"/>
+  </svg>
 );
 
 const AppleIcon = () => (
-  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.05 2.26.68 3.01.68.75 0 1.95-.79 3.38-.68 1.48.06 2.62.66 3.32 1.65-2.85 1.76-2.38 5.48.51 6.64-.67 1.75-1.53 3.5-2.22 4.68zm-5.28-14.8c-.1-1.55 1.25-3.05 2.81-3.23.23 1.66-1.28 3.16-2.81 3.23z"/></svg>
+  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.05 2.26.68 3.01.68.75 0 1.95-.79 3.38-.68 1.48.06 2.62.66 3.32 1.65-2.85 1.76-2.38 5.48.51 6.64-.67 1.75-1.53 3.5-2.22 4.68zm-5.28-14.8c-.1-1.55 1.25-3.05 2.81-3.23.23 1.66-1.28 3.16-2.81 3.23z"/>
+  </svg>
 );
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface AuthFormProps {
   mode?: "login" | "signup";
@@ -36,15 +50,101 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
 
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const shakeCard = () => {
+    const card = document.getElementById("auth-card");
+    if (card) {
+      card.classList.remove("shake");
+      void card.offsetWidth;
+      card.classList.add("shake");
+    }
+  };
+
+  // ── wallet connect handler ─────────────────────────────────────────────────
+
+  /**
+   * Fired by WalletButton the moment the user approves their wallet.
+   *
+   * Authenticates the user using the new challenge/signin/signup endpoints.
+   * No email or password required.
+   */
+  const handleWalletConnect = async (address: string) => {
     setError("");
+    setInfo("");
     setLoading(true);
 
     try {
-      // Validate inputs
-      const validationResult = authSchema.safeParse({
+      // 1. Get challenge from backend
+      // Response: { challenge, message, expiresIn }
+      // We'll sign the 'challenge' string (the unique ID) and send it back as 'message'.
+      setInfo("Generating challenge...");
+      const challengeRes = await apiClient.post("/auths/wallet/challenge", {
+        stellarAddress: address,
+      });
+      const { challenge, message: humanReadableMessage } = challengeRes.data;
+
+      if (!challenge) {
+        throw new Error("Failed to get a valid challenge from the server.");
+      }
+
+      // 2. Sign the challenge with the wallet
+      setInfo("Please sign the challenge in your wallet...");
+      const rawSignature = await signAuthMessage(challenge);
+      const signature = ensureHexSignature(rawSignature);
+
+      // 3. Attempt signin first; if no account exists, auto-signup instead.
+      setInfo("Authenticating...");
+      try {
+        const signinRes = await apiClient.post("/auths/wallet/signin", {
+          stellarAddress: address,
+          signature,
+          message: challenge,
+        });
+        setUser(signinRes.data.user);
+        router.push(signinRes.data.redirect ?? "/dashboard");
+      } catch (signinErr: any) {
+        if (signinErr.response?.status === 401 && signinErr.response?.data?.message?.includes("No account found")) {
+          // No account found — create one
+          setInfo("Creating your account...");
+          const signupRes = await apiClient.post("/auths/wallet/signup", {
+            stellarAddress: address,
+            signature,
+            message: challenge,
+          });
+          setUser(signupRes.data.user);
+          router.push(signupRes.data.redirect ?? "/dashboard");
+        } else {
+          throw signinErr;
+        }
+      }
+    } catch (err: any) {
+      console.error("Wallet auth error:", err);
+      const backendMessage = err.response?.data?.message || err.response?.data?.error;
+      let message = backendMessage || err.message || "Wallet authentication failed";
+      if (Array.isArray(message)) message = message[0];
+      // 409 means the wallet is registered but signin somehow failed — tell the user
+      if (err.response?.status === 409) {
+        message = "This wallet is already registered. Try signing in instead.";
+      }
+      setError(message);
+      setInfo("");
+      shakeCard();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── email / password submit ────────────────────────────────────────────────
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    setLoading(true);
+
+    try {
+      const validationResult = emailAuthSchema.safeParse({
         email,
         password,
         fullName: currentMode === "signup" ? fullName : undefined,
@@ -55,74 +155,79 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
       }
 
       if (currentMode === "login") {
-        await apiClient.post('/auths/login', { email, password });
+        await apiClient.post("/auths/login", { email, password });
       } else {
-        await apiClient.post('/auths/signup', { fullName, email, password });
+        await apiClient.post("/auths/signup", { fullName, email, password });
       }
 
-      // Fetch user profile immediately after successful auth
-      const userResponse = await apiClient.get('/users/me');
-      const user = userResponse.data;
-      setUser(user);
+      const { data: user } = await apiClient.get("/users/me");
 
-      // Immediate navigation after state update
-      const needsOnboarding = !user.onboardingStep || user.onboardingStep <= 2;
-      if (needsOnboarding) {
-        router.push("/onboarding");
-      } else {
+      if (currentMode === "login") {
+        // Login — AuthProvider can handle redirecting from guest pages
+        setUser(user);
         router.push("/dashboard");
+      } else {
+        // Signup — we handle routing ourselves so AuthProvider must not
+        // override our push to /onboarding
+        setUser(user, true); // skipRedirect=true
+        router.push("/onboarding");
       }
     } catch (err: any) {
-      // Detailed logging for debugging 400 errors
       if (err.response?.status === 400) {
-        console.error("Signup/Login Validation Error:", err.response.data);
+        console.error("Auth validation error:", err.response.data);
+      }
+      let message = err.response?.data?.message || err.message || "An error occurred";
+      if (Array.isArray(message)) message = message[0];
+
+      // Make 409 actionable — tell the user to log in instead
+      if (err.response?.status === 409) {
+        message = "This email is already registered. Try logging in instead.";
       }
 
-      const message = err.response?.data?.message || err.message || "An error occurred";
-      setError(Array.isArray(message) ? message[0] : message);
-      const card = document.getElementById("auth-card");
-      if (card) {
-        card.classList.remove("shake");
-        void card.offsetWidth; // trigger reflow
-        card.classList.add("shake");
-      }
+      setError(message);
+      shakeCard();
     } finally {
       setLoading(false);
     }
   };
 
+  // ── render ─────────────────────────────────────────────────────────────────
+
   return (
-    <div id="auth-card" className="w-[440px] bg-[#0E1512]/80 backdrop-blur-md rounded-[20px] p-[38px] shadow-[0_4px_40px_rgba(0,0,0,0.5)] border border-[#1E2A24] relative overflow-hidden">
-      {/* Decorative inner glow */}
+    <div
+      id="auth-card"
+      className="w-[440px] bg-[#0E1512]/80 backdrop-blur-md rounded-[20px] p-[38px] shadow-[0_4px_40px_rgba(0,0,0,0.5)] border border-[#1E2A24] relative overflow-hidden"
+    >
       <div className="absolute -top-24 -right-24 w-60 h-60 bg-brand/10 rounded-full blur-[60px] pointer-events-none" />
-      
+
       <h2 className="text-[28px] text-white font-bold tracking-tight mb-1">
         {currentMode === "login" ? "Welcome back" : "Create an account"}
       </h2>
       <p className="text-[#8e9895] mb-8 text-[15px]">
-        {currentMode === "login" ? "Log in to start creating viral content" : "Sign up to start creating viral content"}
+        {currentMode === "login"
+          ? "Log in to start creating viral content"
+          : "Sign up to start creating viral content"}
       </p>
-      
+
       <div className="space-y-[14px] mb-8">
-        <button 
-          onClick={() => window.location.href = 'https://clipcash-api.onrender.com/auths/google'}
-          className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2A24] border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
-        >
-          <GoogleIcon />
-          Continue with Google
-        </button>
-        <button className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2A24] border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]">
-          <AppleIcon />
-          Continue with Apple
-        </button>
-        <button 
-          type="button"
-          onClick={() => alert("Wallet connection coming soon!")}
+        <div className="relative group">
+          <button
+            type="button"
+            disabled
+            className="w-full flex items-center justify-center gap-3 bg-[#17201C] opacity-50 cursor-not-allowed border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
+          >
+            <GoogleIcon />
+            Continue with Google
+          </button>
+          <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/90 text-white text-[11px] px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10 shadow-xl">
+            Coming soon
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-black/90 rotate-45 border-r border-b border-white/10" />
+          </div>
+        </div>
+        <WalletButton
+          onConnect={handleWalletConnect}
           className="w-full flex items-center justify-center gap-3 bg-brand/5 hover:bg-brand/10 border border-brand/20 text-brand py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
-        >
-          <Wallet className="w-[18px] h-[18px]" />
-          Connect Wallet
-        </button>
+        />
       </div>
 
       <div className="flex items-center gap-4 text-[#4A5D54] text-[11px] font-bold tracking-[0.1em] uppercase mb-8">
@@ -131,62 +236,101 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
         <div className="flex-1 h-px bg-[#1E2A24]" />
       </div>
 
-      <form onSubmit={handleAuthSubmit} className="space-y-4">
+      <form onSubmit={handleEmailSubmit} className="space-y-4">
         {currentMode === "signup" && (
           <div>
-            <label className="block text-[13px] font-medium text-[#8e9895] mb-2">Full Name</label>
-            <input 
-              type="text" 
+            <label className="block text-[13px] font-medium text-[#8e9895] mb-2">
+              Full Name
+            </label>
+            <input
+              type="text"
               required
               value={fullName}
-              onChange={e => setFullName(e.target.value)}
+              onChange={(e) => setFullName(e.target.value)}
               placeholder="Your full name"
               className="w-full bg-[#131A17] border border-[#1E2A24] text-white focus:border-brand/70 rounded-[12px] px-4 py-3.5 text-[14px] focus:outline-none focus:bg-[#161F1A] transition-colors"
             />
           </div>
         )}
         <div>
-          <label className="block text-[13px] font-medium text-[#8e9895] mb-2">Email address</label>
-          <input 
+          <label className="block text-[13px] font-medium text-[#8e9895] mb-2">
+            Email address
+          </label>
+          <input
             id="auth-email"
-            type="email" 
+            type="email"
             required
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             placeholder="name@company.com"
             className="w-full bg-[#131A17] border border-[#1E2A24] text-white focus:border-brand/70 rounded-[12px] px-4 py-3.5 text-[14px] focus:outline-none focus:bg-[#161F1A] transition-colors placeholder-[#4A5D54]"
           />
         </div>
-
         <div>
-          <label className="block text-[13px] font-medium text-[#8e9895] mb-2">Password</label>
-          <input 
-            type="password" 
+          <label className="block text-[13px] font-medium text-[#8e9895] mb-2">
+            Password
+          </label>
+          <input
+            id="auth-password"
+            type="password"
             required
             value={password}
-            onChange={e => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             className="w-full bg-[#131A17] border border-[#1E2A24] text-white focus:border-brand/70 rounded-[12px] px-4 py-3.5 text-[14px] focus:outline-none focus:bg-[#161F1A] transition-colors placeholder-[#4A5D54]"
           />
         </div>
 
-        {error && <div className="text-red-400 text-[13px] text-center pt-1">{error}</div>}
+        {error && (
+          <div className="text-[13px] text-center pt-1 text-red-400">
+            {error}
+          </div>
+        )}
 
-        <button 
-          type="submit" 
+        {info && (
+          <div className="text-[13px] text-center pt-1 text-brand">
+            {info}
+          </div>
+        )}
+
+        <button
+          type="submit"
           disabled={loading}
           className="w-full bg-brand hover:bg-brand-hover text-black py-[15px] rounded-[12px] font-bold text-[15px] flex justify-center items-center gap-2 transition-all disabled:opacity-70 mt-[6px]"
         >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin text-black" /> : 
-            (currentMode === "login" ? "Continue with Email" : "Create Account")}
+          {loading ? (
+            <Loader2 className="w-5 h-5 animate-spin text-black" />
+          ) : currentMode === "login" ? (
+            "Continue with Email"
+          ) : (
+            "Create Account"
+          )}
         </button>
       </form>
-      
+
       <div className="text-center mt-7 text-[13px] text-[#84908C]">
         {currentMode === "login" ? (
-          <>New here? <button type="button" onClick={() => setCurrentMode("signup")} className="text-brand font-medium hover:underline">Sign up free</button></>
+          <>
+            New here?{" "}
+            <button
+              type="button"
+              onClick={() => router.push("/signup")}
+              className="text-brand font-medium hover:underline"
+            >
+              Sign up free
+            </button>
+          </>
         ) : (
-          <>Already have an account? <button type="button" onClick={() => setCurrentMode("login")} className="text-brand font-medium hover:underline">Sign in</button></>
+          <>
+            Already have an account?{" "}
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="text-brand font-medium hover:underline"
+            >
+              Sign in
+            </button>
+          </>
         )}
       </div>
     </div>

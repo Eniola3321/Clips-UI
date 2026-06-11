@@ -3,11 +3,12 @@ import apiClient from "./apiClient";
 export const getDashboardData = async () => {
   try {
     const [videosRes, platformsRes] = await Promise.all([
-      apiClient.get('/videos?limit=10'),
+      apiClient.get('/videos?page=1&limit=10'),
       apiClient.get('/platforms')
     ]);
 
-    const videos = videosRes.data.items || (Array.isArray(videosRes.data) ? videosRes.data : []);
+    // Backend returns { data: [...], total, page, limit }
+    const videos = videosRes.data.data || (Array.isArray(videosRes.data) ? videosRes.data : []);
     const connectedPlatforms = platformsRes.data.accountCount || 0;
     
     // Count total clips across all videos
@@ -18,14 +19,14 @@ export const getDashboardData = async () => {
         clips: totalClips.toString(),
         platforms: connectedPlatforms.toString(),
       },
-      projects: videos.slice(0, 3).map((video: any) => ({
+      projects: videos.slice(0, 6).map((video: any) => ({
         id: video.id,
         title: video.title || "Untitled Video",
         clipsCount: video.clipsCount || 0,
         status: video.status || "completed",
-        thumbnail: video.thumbnail || "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=400&h=400"
+        thumbnail: video.thumbnail || null,
       })),
-      totalVideos: videosRes.data.total || videos.length
+      totalVideos: videosRes.data.total || videos.length,
     };
   } catch (error) {
     console.error("Failed to fetch dashboard data:", error);
@@ -35,7 +36,11 @@ export const getDashboardData = async () => {
 
 export const getVideos = async (page = 1, limit = 10) => {
   const response = await apiClient.get(`/videos?page=${page}&limit=${limit}`);
-  return response.data;
+  // Backend returns { data: [...], total, page, limit }
+  return {
+    items: response.data.data || (Array.isArray(response.data) ? response.data : []),
+    total: response.data.total || 0,
+  };
 };
 
 export const getProjectsData = async (videoId?: string, page = 1, limit = 20) => {
@@ -45,22 +50,30 @@ export const getProjectsData = async (videoId?: string, page = 1, limit = 20) =>
       : `/clips?page=${page}&limit=${limit}`;
       
     const response = await apiClient.get(endpoint);
-    const clips = response.data.items || (Array.isArray(response.data) ? response.data : []);
+    // Backend returns { data: [...], total, page, limit } or plain array
+    const clips = response.data.data || (Array.isArray(response.data) ? response.data : []);
 
     return clips.map((clip: any) => ({
-      id: clip.id,
-      title: clip.title || `Clip #${clip.id.slice(0, 4)}`,
-      thumbnail: clip.thumbnail || "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800",
-      score: clip.score || 0,
-      scoreKey: (clip.score || 0) > 80 ? "high" : (clip.score || 0) > 50 ? "medium" : "low",
-      duration: clip.duration || "00:00",
-      style: clip.style || "Default"
+      id: String(clip.id),
+      title: clip.title || `Clip #${clip.id}`,
+      thumbnail: clip.thumbnail || null,
+      score: clip.viralScore ?? clip.score ?? 0,
+      scoreKey: (clip.viralScore ?? clip.score ?? 0) >= 80 ? "high" : (clip.viralScore ?? clip.score ?? 0) >= 50 ? "medium" : "low",
+      duration: clip.duration ? formatDuration(clip.duration) : "00:00",
+      style: clip.platform || clip.style || "General",
+      clipUrl: clip.clipUrl || null,
     }));
   } catch (error) {
     console.error("Failed to fetch projects data:", error);
     throw error;
   }
 };
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
 
 export const deleteClip = async (id: string) => {
   await apiClient.delete(`/clips/${id}`);

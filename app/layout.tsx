@@ -3,6 +3,8 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import QueryProvider from "@/components/QueryProvider";
+import { WalletProvider } from "@/components/WalletProvider";
+import { ToastProvider } from "@/components/shared/ToastProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -50,9 +52,13 @@ export default function RootLayout({
       <body className={inter.className} suppressHydrationWarning>
         <div className="radial-bg" />
         <QueryProvider>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
+          <WalletProvider>
+            <AuthProvider>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </AuthProvider>
+          </WalletProvider>
         </QueryProvider>
       </body>
     </html>

@@ -75,12 +75,6 @@ export default function Navbar({ variant = "landing", sticky = false }: NavbarPr
           {!user ? (
             <>
               <Link 
-                href="/login"
-                className="text-[14px] font-semibold text-white hover:text-brand transition-colors"
-              >
-                Sign In
-              </Link>
-              <Link 
                 href="/signup"
                 className="bg-brand hover:bg-brand-hover text-black px-6 py-2.5 rounded-full text-[14px] font-bold transition-all shadow-[0_0_15px_rgba(0,229,143,0.15)] hover:shadow-[0_0_25px_rgba(0,229,143,0.3)] transform hover:-translate-y-0.5 inline-block"
               >
@@ -104,7 +98,7 @@ export default function Navbar({ variant = "landing", sticky = false }: NavbarPr
               <div className="relative flex items-center gap-3 pl-4 border-l border-white/10" ref={dropdownRef}>
                 <div className="hidden sm:flex flex-col items-end">
                   <span className="text-[13px] font-bold text-white leading-none mb-1">
-                    {user?.profile?.username || user?.fullName || "User"}
+                    {user?.username || user?.profile?.username || user?.fullName || "User"}
                   </span>
                   <span className="text-[11px] font-medium text-brand/80">Pro Creator</span>
                 </div>

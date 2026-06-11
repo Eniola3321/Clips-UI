@@ -1,8 +1,8 @@
 "use client";
 
 import  { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getProjectsData, deleteClip } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { deleteClip } from "@/lib/queries";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import ProjectFilters from "@/components/projects/ProjectFilters";
 import ClipGrid from "@/components/projects/ClipGrid";
@@ -22,23 +22,17 @@ interface ProjectsContentProps {
   clips: Project[];
 }
 
-export default function ProjectsContent({ clips: initialClips }: ProjectsContentProps) {
+export default function ProjectsContent({ clips }: ProjectsContentProps) {
   const queryClient = useQueryClient();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [captionsStyle, setCaptionsStyle] = useState("All Styles");
   const [viralityLevels, setViralityLevels] = useState<string[]>(["high", "medium", "low"]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const { data: clips } = useQuery({
-    queryKey: ["projectsData"],
-    queryFn: () => getProjectsData(),
-    initialData: initialClips,
-  });
-
   const handleDeleteClip = async (id: string) => {
     try {
       await deleteClip(id);
-      // Optimistically update or just refetch
+      // Invalidate both the scoped and global queries
       queryClient.invalidateQueries({ queryKey: ["projectsData"] });
     } catch (error) {
       console.error("Failed to delete clip:", error);

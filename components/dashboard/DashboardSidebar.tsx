@@ -105,7 +105,7 @@ export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
           <UserAvatar user={user} />
           <div className="flex-1 min-w-0">
             <div className="text-[14px] font-bold text-white truncate">
-              {user?.profile?.username || user?.fullName || ""}
+              {user?.username || user?.profile?.username || user?.fullName || ""}
             </div>
             <div className="text-[11px] text-[#5A6F65] truncate">
               {user?.email || ""}
