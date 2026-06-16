@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Play,
   Download,
@@ -13,9 +14,7 @@ import {
   Volume2,
   VolumeX,
   Pause,
-  Save,
 } from "lucide-react";
-import { updateClip } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,15 +29,10 @@ interface ClipCardProps {
   isSelected: boolean;
   onSelect: (id: string) => void;
   onDelete?: (id: string) => Promise<void>;
-  onUpdate?: (id: string, updated: Partial<ClipEditFields>) => void;
 }
 
-interface ClipEditFields {
-  title: string;
-  caption: string;
-  platform: string;
-  audioOverlayUrl: string;
-}
+const FALLBACK_IMG =
+  "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800";
 
 // ─── Video Preview Modal ──────────────────────────────────────────────────────
 
@@ -142,180 +136,7 @@ function VideoModal({
   );
 }
 
-// ─── Edit Modal ───────────────────────────────────────────────────────────────
-
-const PLATFORMS = ["tiktok", "instagram", "youtube", "facebook", "x", "pinterest"];
-
-function EditModal({
-  clip,
-  onClose,
-  onSaved,
-}: {
-  clip: { id: string; title: string; clipUrl: string | null };
-  onClose: () => void;
-  onSaved: (updated: Partial<ClipEditFields>) => void;
-}) {
-  const [form, setForm] = useState<ClipEditFields>({
-    title: clip.title,
-    caption: "",
-    platform: "tiktok",
-    audioOverlayUrl: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      const payload: Record<string, string> = {};
-      if (form.title.trim()) payload.title = form.title.trim();
-      if (form.caption.trim()) payload.caption = form.caption.trim();
-      if (form.platform) payload.platform = form.platform;
-      if (form.audioOverlayUrl.trim()) payload.audioOverlayUrl = form.audioOverlayUrl.trim();
-
-      await updateClip(clip.id, payload);
-      onSaved(payload);
-      onClose();
-    } catch (err: any) {
-      const msg = err.response?.data?.message || "Failed to save changes.";
-      setError(Array.isArray(msg) ? msg[0] : msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md bg-[#0E1512] border border-[#1E2A24] rounded-[24px] p-7 shadow-[0_0_80px_rgba(0,229,143,0.08)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-[20px] font-bold text-white tracking-tight">Edit Clip</h2>
-            <p className="text-[12px] text-[#5A6F65] mt-0.5">Update title, caption, platform or audio</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[#5A6F65] hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSave} className="space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-[12px] font-bold text-[#5A6F65] uppercase tracking-wider mb-1.5">
-              Title
-            </label>
-            <input
-              type="text"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Clip title"
-              className="w-full bg-[#080C0B] border border-white/5 focus:border-brand/40 rounded-xl px-4 py-3 text-white text-[14px] outline-none transition-colors placeholder-[#3A4A43]"
-            />
-          </div>
-
-          {/* Caption */}
-          <div>
-            <label className="block text-[12px] font-bold text-[#5A6F65] uppercase tracking-wider mb-1.5">
-              Caption
-            </label>
-            <textarea
-              value={form.caption}
-              onChange={(e) => setForm({ ...form, caption: e.target.value })}
-              placeholder="Add a caption or hashtags… #viral #fyp"
-              rows={3}
-              className="w-full bg-[#080C0B] border border-white/5 focus:border-brand/40 rounded-xl px-4 py-3 text-white text-[14px] outline-none transition-colors placeholder-[#3A4A43] resize-none"
-            />
-          </div>
-
-          {/* Platform */}
-          <div>
-            <label className="block text-[12px] font-bold text-[#5A6F65] uppercase tracking-wider mb-1.5">
-              Target Platform
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {PLATFORMS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setForm({ ...form, platform: p })}
-                  className={`px-3 py-1.5 rounded-lg text-[12px] font-bold capitalize transition-all border ${
-                    form.platform === p
-                      ? "bg-brand/10 border-brand text-brand"
-                      : "bg-white/[0.02] border-white/5 text-[#5A6F65] hover:text-white hover:border-white/10"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Audio overlay */}
-          <div>
-            <label className="block text-[12px] font-bold text-[#5A6F65] uppercase tracking-wider mb-1.5">
-              Audio Overlay URL <span className="text-[#3A4A43] normal-case font-normal">(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={form.audioOverlayUrl}
-              onChange={(e) => setForm({ ...form, audioOverlayUrl: e.target.value })}
-              placeholder="https://example.com/viral-sound.mp3"
-              className="w-full bg-[#080C0B] border border-white/5 focus:border-brand/40 rounded-xl px-4 py-3 text-white text-[14px] outline-none transition-colors placeholder-[#3A4A43]"
-            />
-          </div>
-
-          {error && (
-            <p className="text-red-400 text-[13px]">{error}</p>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3 rounded-xl border border-white/10 text-[#5A6F65] hover:text-white text-[14px] font-bold transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-3 rounded-xl bg-brand hover:bg-brand-hover text-black text-[14px] font-black flex items-center justify-center gap-2 transition-all disabled:opacity-70"
-            >
-              {saving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <><Save className="w-4 h-4" /> Save Changes</>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── ClipCard ─────────────────────────────────────────────────────────────────
-
-const FALLBACK_IMG =
-  "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800";
+// ─── ClipCard ──────────────────────────────────────────────────────────────────
 
 export default function ClipCard({
   id,
@@ -328,15 +149,11 @@ export default function ClipCard({
   isSelected,
   onSelect,
   onDelete,
-  onUpdate,
 }: ClipCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [imgSrc, setImgSrc] = useState(thumbnail || FALLBACK_IMG);
   const [showPreview, setShowPreview] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [title, setTitle] = useState(initialTitle);
-  const isHighScore = scoreKey === "high";
 
   useEffect(() => { setImgSrc(thumbnail || FALLBACK_IMG); }, [thumbnail]);
 
@@ -348,35 +165,22 @@ export default function ClipCard({
   };
 
   const openPreview = (e: React.MouseEvent) => { e.stopPropagation(); if (clipUrl) setShowPreview(true); };
-  const openEdit = (e: React.MouseEvent) => { e.stopPropagation(); setShowEdit(true); };
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!clipUrl) return;
     const a = document.createElement("a");
     a.href = clipUrl;
-    a.download = `${title}.mp4`;
+    a.download = `${initialTitle}.mp4`;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.click();
   };
 
-  const handleSaved = (updated: Partial<ClipEditFields>) => {
-    if (updated.title) setTitle(updated.title);
-    onUpdate?.(id, updated);
-  };
-
   return (
     <>
       {showPreview && clipUrl && (
-        <VideoModal clipUrl={clipUrl} title={title} onClose={() => setShowPreview(false)} />
-      )}
-      {showEdit && (
-        <EditModal
-          clip={{ id, title, clipUrl }}
-          onClose={() => setShowEdit(false)}
-          onSaved={handleSaved}
-        />
+        <VideoModal clipUrl={clipUrl} title={initialTitle} onClose={() => setShowPreview(false)} />
       )}
 
       <div
@@ -392,7 +196,7 @@ export default function ClipCard({
         <div className="relative aspect-video overflow-hidden">
           <Image
             src={imgSrc}
-            alt={title}
+            alt={initialTitle}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
             className="object-cover"
@@ -413,7 +217,7 @@ export default function ClipCard({
 
           {/* Score badge */}
           <div className={`absolute top-3 right-3 px-2 py-1 rounded-md backdrop-blur-md border z-20 ${
-            isHighScore
+            scoreKey === "high"
               ? "bg-[#00E58F] border-brand text-black shadow-[0_0_20px_rgba(0,229,143,0.4)]"
               : "bg-orange-500 border-orange-500 text-white"
           }`}>
@@ -443,19 +247,15 @@ export default function ClipCard({
         {/* Content */}
         <div className="p-4 space-y-3">
           <div className="space-y-1">
-            <h4 className="text-[13px] font-bold text-white truncate tracking-tight leading-tight">{title}</h4>
+            <h4 className="text-[13px] font-bold text-white truncate tracking-tight leading-tight">{initialTitle}</h4>
             <p className="text-[10px] font-medium text-[#5A6F65]">Perfect for TikTok & Reels</p>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <button
-                onClick={openEdit}
-                className="text-[#5A6F65] hover:text-brand transition-colors"
-                title="Edit clip"
-              >
+              <Link href={`/projects/${id}/edit`} className="text-[#5A6F65] hover:text-brand transition-colors">
                 <Edit className="w-3 h-3" />
-              </button>
+              </Link>
               <button
                 onClick={handleDownload}
                 disabled={!clipUrl}

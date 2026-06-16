@@ -2,24 +2,29 @@
 
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
-import { Play } from "lucide-react";
 
 interface ProjectCardProps {
   title: string;
   clipsCount: number;
   status: "processing" | "completed";
-  thumbnail: string;
+  thumbnail: string | null | undefined;
 }
 
-export default function ProjectCard({ title, clipsCount, status, thumbnail }: ProjectCardProps) {
-  const [imgSrc, setImgSrc] = useState(thumbnail);
+export default function ProjectCard({ 
+  title, 
+  clipsCount, 
+  status, 
+  thumbnail
+}: ProjectCardProps) {
+  const fallbackImage = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800";
+  const [imgSrc, setImgSrc] = useState(thumbnail || fallbackImage);
 
   useEffect(() => {
-    setImgSrc(thumbnail);
+    setImgSrc(thumbnail || fallbackImage);
   }, [thumbnail]);
 
   return (
-    <div className="group bg-[#0B100E] border border-white/5 rounded-[28px] p-5 hover:border-brand/40 transition-all duration-500 hover:shadow-[0_0_40px_rgba(0,229,143,0.05)] cursor-pointer">
+    <div className="group bg-[#0B100E] border border-white/5 rounded-[28px] p-5 hover:border-brand/40 transition-all duration-500 hover:shadow-[0_0_40px_rgba(0,229,143,0.05)]">
       <div className="flex items-center gap-5">
         <div className="w-24 h-24 rounded-[18px] overflow-hidden relative shrink-0">
           <Image 
@@ -29,14 +34,9 @@ export default function ProjectCard({ title, clipsCount, status, thumbnail }: Pr
             sizes="96px" 
             className="object-cover group-hover:scale-110 transition-transform duration-500" 
             onError={() => {
-              setImgSrc("https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800");
+              setImgSrc(fallbackImage);
             }}
           />
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="w-8 h-8 rounded-full bg-brand/90 flex items-center justify-center text-black">
-              <Play className="w-4 h-4 fill-current ml-0.5" />
-            </div>
-          </div>
         </div>
         
         <div className="flex-1 min-w-0 flex flex-col gap-2">
@@ -44,7 +44,7 @@ export default function ProjectCard({ title, clipsCount, status, thumbnail }: Pr
             {title}
           </h4>
           <p className="text-[12px] text-[#5A6F65] font-medium">
-            {clipsCount} clips generated
+            {clipsCount} {clipsCount === 1 ? "clip" : "clips"} generated
           </p>
           
           <div className="flex">

@@ -20,7 +20,6 @@ interface ClipGridProps {
   onSelect: (id: string) => void;
   onSelectAll: () => void;
   onDelete?: (id: string) => Promise<void>;
-  onUpdate?: (id: string, updated: Record<string, string>) => void;
 }
 
 export default function ClipGrid({
@@ -29,7 +28,6 @@ export default function ClipGrid({
   onSelect,
   onSelectAll,
   onDelete,
-  onUpdate,
 }: ClipGridProps) {
   if (clips.length === 0) {
     return (
@@ -82,7 +80,6 @@ export default function ClipGrid({
             isSelected={selectedIds.includes(clip.id)}
             onSelect={onSelect}
             onDelete={onDelete}
-            onUpdate={onUpdate}
           />
         ))}
       </div>

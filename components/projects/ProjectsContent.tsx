@@ -11,11 +11,12 @@ import SelectionFooter from "@/components/projects/SelectionFooter";
 interface Project {
   id: string;
   title: string;
-  thumbnail: string;
+  thumbnail: string | null;
+  clipUrl: string | null;
   score: number;
   scoreKey: string;
   duration: string;
-  style: string;
+  style?: string;
 }
 
 interface ProjectsContentProps {
@@ -49,6 +50,8 @@ export default function ProjectsContent({ clips }: ProjectsContentProps) {
       throw error;
     }
   };
+
+
 
   // Filtering Logic
   const filteredClips = clips.filter((clip: Project) => {

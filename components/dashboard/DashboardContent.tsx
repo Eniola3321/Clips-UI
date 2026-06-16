@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { getDashboardData, getVideos } from "@/lib/queries";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import StatCard from "@/components/dashboard/StatCard";
@@ -20,7 +20,6 @@ interface DashboardContentProps {
 }
 
 export default function DashboardContent({ stats: initialStats, projects: initialProjects }: DashboardContentProps) {
-  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [allProjects, setAllProjects] = useState(initialProjects);
@@ -40,7 +39,6 @@ export default function DashboardContent({ stats: initialStats, projects: initia
     try {
       const nextPage = page + 1;
       const response = await getVideos(nextPage);
-      // getVideos now returns { items, total }
       const newItems = response.items || [];
       setAllProjects(prev => [...prev, ...newItems]);
       setPage(nextPage);
@@ -57,7 +55,7 @@ export default function DashboardContent({ stats: initialStats, projects: initia
         {/* Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatCard 
-            label="Clips Posted" 
+            label="Total Clips Generated" 
             value={stats.clips} 
             trend="+8.2%" 
             icon={Video} 
