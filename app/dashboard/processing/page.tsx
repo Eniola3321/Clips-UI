@@ -3,12 +3,16 @@
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import ProcessingHeader from "@/components/dashboard/ProcessingHeader";
 import DashboardLayout from "@/components/shared/DashboardLayout";
+import { getProjectsData } from "@/lib/queries";
 import { Sparkles, Clock, RefreshCw, Zap, CheckCircle2, AlertCircle } from "lucide-react";
 
 // Status values the backend SSE stream can emit
-type ProcessingStatus = "analyzing" | "processing" | "done" | "completed" | "error";
+type ProcessingStatus = "analyzing" | "processing" | "done" | "completed" | "failed" | "error";
+
+const MAX_RETRIES = 3;
 
 function ProcessingContent() {
   const [progress, setProgress] = useState(0);
@@ -16,8 +20,10 @@ function ProcessingContent() {
   const [clipsFound, setClipsFound] = useState<number | null>(null);
   const [isDone, setIsDone] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const videoId = searchParams.get("videoId");
 
   useEffect(() => {
@@ -28,50 +34,125 @@ function ProcessingContent() {
     }
 
     // Route SSE through the proxy so the auth cookie is sent
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "/api/proxy";
-    const sseUrl = `${base}/events/processing-progress/${videoId}`;
-    let es: EventSource;
+    const sseUrl = `/api/proxy/events/processing-progress/${videoId}`;
+    let es: EventSource | null = null;
+    let retryTimeout: NodeJS.Timeout | null = null;
+    let retryCount = 0;
+    let fatalError = false;
+
+    const stopWithError = (msg: string) => {
+      fatalError = true;
+      es?.close();
+      es = null;
+      setHasError(true);
+      setErrorMsg(msg);
+    };
+
+    /**
+     * Called the instant SSE reports success.
+     * Fetches the clips, seeds the React Query cache, then navigates.
+     * The projects page will find data already in cache and render immediately.
+     */
+    const finishAndNavigate = async () => {
+      setIsDone(true);
+      setProgress(100);
+      setStatusMsg("All clips generated! Loading your clips…");
+
+      try {
+        // Pre-fetch clips into the cache so /projects renders instantly
+        const clips = await getProjectsData(videoId);
+        queryClient.setQueryData(["projectsData", videoId], clips);
+      } catch {
+        // Non-fatal — the projects page will fetch on its own if cache miss
+      }
+
+      // Navigate immediately — no artificial delay
+      router.push(`/projects?videoId=${videoId}`);
+    };
 
     const connect = () => {
+      console.log("[SSE] Connecting to:", sseUrl);
       es = new EventSource(sseUrl, { withCredentials: true });
+
+      es.onopen = () => {
+        console.log("[SSE] Connection opened successfully");
+        retryCount = 0;
+      };
 
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log("[SSE] Received message:", data);
 
           if (typeof data.progress === "number") setProgress(data.progress);
-          if (data.message) setStatusMsg(data.message);
-          if (typeof data.clipsFound === "number") setClipsFound(data.clipsFound);
+          if (typeof data.clipsFound === "number") {
+            setClipsFound(data.clipsFound);
+          } else if (data.clips && Array.isArray(data.clips)) {
+            setClipsFound(data.clips.length);
+          }
 
           const status: ProcessingStatus = data.status;
-          if (
-            status === "done" ||
-            status === "completed" ||
-            data.progress >= 100
-          ) {
-            es.close();
-            setIsDone(true);
-            setProgress(100);
-            setStatusMsg("All clips generated! Redirecting…");
-            // Give the user a moment to see the completion state
-            setTimeout(() => router.push(`/projects?videoId=${videoId}`), 2000);
+
+          // ── Fatal error from the backend ──────────────────────────────────
+          if (status === "failed" || status === "error") {
+            console.error("[SSE] Backend reported failure:", data.message);
+            stopWithError(
+              data.message && !data.message.toLowerCase().includes("status code")
+                ? data.message
+                : "Something went wrong while generating your clips. Please try again."
+            );
+            return;
           }
-        } catch {
-          // Ignore malformed SSE frames
+
+          // ── Update status message only for non-error states ───────────────
+          if (data.message) setStatusMsg(data.message);
+
+          // ── Success ───────────────────────────────────────────────────────
+          if (status === "done" || status === "completed" || data.progress >= 100) {
+            console.log("[SSE] Processing complete — prefetching clips and navigating");
+            es?.close();
+            es = null;
+            finishAndNavigate();
+          }
+        } catch (error) {
+          console.error("[SSE] Parse error:", error, "Raw data:", event.data);
         }
       };
 
-      es.onerror = () => {
-        es.close();
-        // SSE connections drop regularly — just show a softer message
-        // and let the user navigate manually if they want
-        setStatusMsg("Live updates paused. Processing continues in the background.");
+      es.onerror = (error) => {
+        console.error("[SSE] Connection error:", error);
+        es?.close();
+        es = null;
+
+        if (fatalError) return;
+
+        retryCount += 1;
+        if (retryCount > MAX_RETRIES) {
+          stopWithError(
+            "We couldn't connect to the processing stream. Your video may still be processing — check your Projects in a few minutes."
+          );
+          return;
+        }
+
+        const delay = retryCount * 3000;
+        setStatusMsg(`Connection lost — retrying in ${delay / 1000}s… (${retryCount}/${MAX_RETRIES})`);
+        retryTimeout = setTimeout(() => {
+          console.log(`[SSE] Retry attempt ${retryCount}/${MAX_RETRIES}`);
+          connect();
+        }, delay);
       };
     };
 
     connect();
-    return () => es?.close();
-  }, [videoId, router]);
+
+    return () => {
+      console.log("[SSE] Cleaning up connection");
+      fatalError = true;
+      es?.close();
+      es = null;
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  }, [videoId, router, queryClient]);
 
   return (
     <main className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10">
@@ -92,10 +173,10 @@ function ProcessingContent() {
 
         <div className="space-y-3">
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
-            {isDone ? "Clips are ready!" : "AI is finding viral moments…"}
+            {isDone ? "Clips are ready!" : hasError ? "Generation failed" : "AI is finding viral moments…"}
           </h1>
-          <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto font-medium">
-            {statusMsg}
+          <p className={`text-lg md:text-xl max-w-2xl mx-auto font-medium ${hasError ? "text-red-400" : "text-gray-400"}`}>
+            {hasError ? errorMsg : statusMsg}
           </p>
         </div>
       </div>
@@ -177,6 +258,21 @@ function ProcessingContent() {
             <CheckCircle2 className="w-4 h-4" />
             View My Clips
           </button>
+        ) : hasError ? (
+          <>
+            <button
+              onClick={() => router.push("/clips")}
+              className="flex items-center gap-2.5 px-8 py-3.5 rounded-full bg-brand hover:bg-brand-hover text-black font-bold text-sm transition-all active:scale-[0.98]"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="flex items-center gap-2.5 px-8 py-3.5 rounded-full border border-white/10 bg-[#0A0F0D] hover:bg-[#111815] hover:border-white/20 text-gray-300 font-bold text-sm transition-all active:scale-[0.98]"
+            >
+              Go to Dashboard
+            </button>
+          </>
         ) : (
           <>
             <button

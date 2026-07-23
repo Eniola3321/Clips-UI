@@ -14,7 +14,9 @@ export const getDashboardData = async () => {
 
     // Backend returns { data: [...], total, page, limit }
     const videos = videosRes.data.data || (Array.isArray(videosRes.data) ? videosRes.data : []);
-    const connectedPlatforms = platformsRes.data.accountCount || 0;
+    // Backend returns { success, connected, platforms: string[], accountCount }
+    const connectedPlatforms = platformsRes.data.accountCount 
+      ?? (Array.isArray(platformsRes.data.platforms) ? platformsRes.data.platforms.length : 0);
     
     // Function to get number of clips for a video
     const getClipsCount = (video: any) => {

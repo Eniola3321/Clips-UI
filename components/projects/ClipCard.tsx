@@ -51,7 +51,8 @@ function VideoModal({
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    videoRef.current?.play().then(() => setPlaying(true)).catch(() => {});
+    // Do NOT autoplay — browsers block audio on autoplay without a user gesture.
+    // User must press play so the browser allows sound.
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -101,13 +102,18 @@ function VideoModal({
             onEnded={() => setPlaying(false)}
             muted={muted}
             playsInline
+            // No autoplay — requires user gesture so browser allows audio
           />
-          <div className="absolute inset-0 flex items-center justify-center cursor-pointer" onClick={togglePlay}>
-            {!playing && (
-              <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-xl">
-                <Play className="w-6 h-6 text-white fill-white ml-1" />
-              </div>
-            )}
+          <div
+            className="absolute inset-0 flex items-center justify-center cursor-pointer"
+            onClick={togglePlay}
+          >
+            <div className={`w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-xl transition-opacity duration-200 ${playing ? "opacity-0 hover:opacity-100" : "opacity-100"}`}>
+              {playing
+                ? <Pause className="w-6 h-6 text-white fill-white" />
+                : <Play className="w-6 h-6 text-white fill-white ml-1" />
+              }
+            </div>
           </div>
         </div>
 

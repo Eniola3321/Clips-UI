@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Trash2, Zap, MoveRight, Loader2, CheckCircle2, AlertCircle, X } from "lucide-react";
+import { Trash2, Zap, MoveRight, Loader2, CheckCircle2, AlertCircle, X, ChevronDown } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 interface SelectionFooterProps {
@@ -13,17 +13,31 @@ interface SelectionFooterProps {
 
 type Toast = { type: "success" | "error"; message: string } | null;
 
+const POST_PLATFORMS = [
+  { key: "tiktok", label: "TikTok" },
+  { key: "instagram", label: "Instagram" },
+  { key: "youtube", label: "YouTube" },
+];
+
 export default function SelectionFooter({ count, selectedIds, onDelete, onClearSelection }: SelectionFooterProps) {
   const [loading, setLoading] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["tiktok"]);
+  const [showPlatformPicker, setShowPlatformPicker] = useState(false);
 
   if (count === 0) return null;
 
   const showToast = (type: "success" | "error", message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const togglePlatform = (key: string) => {
+    setSelectedPlatforms(prev =>
+      prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+    );
   };
 
   const handleDelete = async () => {
@@ -47,26 +61,33 @@ export default function SelectionFooter({ count, selectedIds, onDelete, onClearS
   };
 
   const handlePost = async () => {
+    if (selectedPlatforms.length === 0) {
+      showToast("error", "Select at least one platform before posting.");
+      return;
+    }
     setLoading(true);
     setAction("post");
+    let succeeded = 0;
     let failed = 0;
     try {
       for (const clipId of selectedIds) {
         try {
-          // clipId is stored as string — send as-is; backend decides type
           await apiClient.post("/platforms/post-clip", {
-            clipId: clipId,
-            platforms: ["tiktok"],
+            clipId: Number(clipId) || clipId,
+            platforms: selectedPlatforms,
           });
+          succeeded++;
         } catch {
           failed++;
         }
       }
       if (failed === 0) {
-        showToast("success", `${count} clip${count > 1 ? "s" : ""} queued for posting.`);
+        showToast("success", `${succeeded} clip${succeeded > 1 ? "s" : ""} queued for posting.`);
         onClearSelection();
+      } else if (succeeded > 0) {
+        showToast("error", `${succeeded} posted, ${failed} failed. Check your platform connections.`);
       } else {
-        showToast("error", `${failed} clip${failed > 1 ? "s" : ""} failed. Check your platform connections.`);
+        showToast("error", "Failed to queue clips. Check your platform connections.");
       }
     } finally {
       setLoading(false);
@@ -141,16 +162,65 @@ export default function SelectionFooter({ count, selectedIds, onDelete, onClearS
             )}
           </div>
 
-          {/* Right: post */}
-          <div className="flex flex-col sm:flex-row items-center gap-4">
+          {/* Right: platform picker + post */}
+          <div className="flex flex-col sm:flex-row items-center gap-4 relative">
             <button className="flex items-center gap-2.5 px-6 py-3 rounded-2xl bg-[#111815] border border-[#1A2621] text-brand font-black text-[12px] hover:border-brand/40 transition-all">
               <Zap className="w-4 h-4 fill-brand" />
               <span>AUTO-SCHEDULE ON</span>
             </button>
 
+            {/* Platform selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowPlatformPicker(v => !v)}
+                className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-white/10 text-white font-bold text-[12px] hover:border-brand/30 transition-all"
+              >
+                <span>
+                  {selectedPlatforms.length === 0
+                    ? "Select platforms"
+                    : selectedPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(", ")}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#5A6F65]" />
+              </button>
+
+              {showPlatformPicker && (
+                <div className="absolute bottom-full mb-2 right-0 z-50 bg-[#0B100E] border border-white/10 rounded-2xl p-4 shadow-2xl min-w-[180px] animate-in slide-in-from-bottom-3 fade-in duration-200">
+                  <p className="text-[10px] font-black text-[#5A6F65] uppercase tracking-widest mb-3">Post to</p>
+                  <div className="flex flex-col gap-2">
+                    {POST_PLATFORMS.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() => togglePlatform(key)}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all ${
+                          selectedPlatforms.includes(key)
+                            ? "bg-brand/10 border border-brand/30 text-brand"
+                            : "border border-white/8 text-[#5A6F65] hover:text-white hover:border-white/20"
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border ${
+                          selectedPlatforms.includes(key) ? "bg-brand border-brand" : "border-white/20"
+                        }`}>
+                          {selectedPlatforms.includes(key) && (
+                            <CheckCircle2 className="w-3 h-3 text-black" />
+                          )}
+                        </div>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setShowPlatformPicker(false)}
+                    className="mt-3 w-full py-2 rounded-xl bg-brand text-black font-black text-[12px] hover:bg-brand-hover transition-all"
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handlePost}
-              disabled={loading}
+              disabled={loading || selectedPlatforms.length === 0}
               className="flex items-center gap-3 px-10 py-4 rounded-3xl bg-brand text-black font-black text-[15px] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_10px_30px_rgba(0,229,143,0.2)] disabled:opacity-50"
             >
               {loading && action === "post" ? (

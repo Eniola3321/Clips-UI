@@ -16,7 +16,12 @@ async function getDashboardData() {
   console.log("[DashboardPage] /platforms response:", platformsRes.data);
 
   const videos = videosRes.data.data || (Array.isArray(videosRes.data) ? videosRes.data : []);
-  const totalClips = videos.reduce((acc: number, v: any) => acc + (v.clipsCount || 0), 0);
+  
+  // Sum up clipsCount across all videos
+  const totalClips = videos.reduce((acc: number, v: any) => {
+    const count = v.clipsCount ?? (Array.isArray(v.clips) ? v.clips.length : 0);
+    return acc + count;
+  }, 0);
 
   return {
     stats: {
@@ -27,7 +32,7 @@ async function getDashboardData() {
     projects: videos.map((video: any) => ({
       id: video.id,
       title: video.title || "Untitled Video",
-      clipsCount: video.clipsCount || 0,
+      clipsCount: video.clipsCount ?? (Array.isArray(video.clips) ? video.clips.length : 0),
       status: video.status || "completed",
       thumbnail: video.thumbnail || null,
     })),
@@ -40,6 +45,10 @@ export default function DashboardPage() {
     queryKey: ["dashboardData"],
     queryFn: getDashboardData,
     retry: false,
+    // Refetch when user returns to the dashboard tab
+    refetchOnWindowFocus: true,
+    // Data is fresh for 10s (don't spam the API on quick navigations)
+    staleTime: 10_000,
   });
 
   if (isLoading) {

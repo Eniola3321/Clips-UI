@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
-const BACKEND_URL = process.env.API_URL;
-
-if (!BACKEND_URL) {
-  throw new Error('API_URL environment variable is not set');
-}
-
 // Disable Next.js body parsing — we stream the raw body directly to the backend.
-// Without this, Next.js buffers and size-limits request bodies (bad for uploads).
+// Without this, Next.js buffers and size-limits request bodies (bad for uploads/SSE).
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 min — covers large uploads + SSE streams
 
 async function handler(req: NextRequest) {
+  const BACKEND_URL = process.env.API_URL;
+
   const path = req.nextUrl.pathname.replace(/^\/api\/proxy/, '');
   const search = req.nextUrl.search;
   const targetUrl = `${BACKEND_URL}${path}${search}`;
+
+  console.log(`[proxy] → ${req.method} ${targetUrl}`);
 
   const headers = new Headers(req.headers);
   headers.delete('host');
@@ -34,7 +31,7 @@ async function handler(req: NextRequest) {
   }
 
   // Debug: log if cookies are present for auth-related paths
-  if (path.includes('/auths/')) {
+  if (path.includes('/auths/') || path.includes('/events/') || path.includes('/platforms/')) {
     const hasCookies = !!headers.get('cookie');
     console.log(`[proxy] ${req.method} ${path} - forwarded cookies: ${hasCookies}`);
   }
@@ -42,7 +39,7 @@ async function handler(req: NextRequest) {
   let backendRes: Response;
   try {
     // For simple JSON requests, we can read the body to avoid streaming issues
-    // For large uploads, we keep the stream
+    // For large uploads and SSE, we keep the stream
     const contentType = req.headers.get('content-type') || '';
     let body: any = req.body;
 
@@ -86,29 +83,33 @@ async function handler(req: NextRequest) {
     );
   }
 
+  console.log(`[proxy] ← ${req.method} ${targetUrl} → ${backendRes.status}`);
+
   const responseHeaders = new Headers(backendRes.headers);
   // Remove encoding headers — no longer valid after Node's auto-decompression
   responseHeaders.delete('content-encoding');
   responseHeaders.delete('content-length');
 
-  // Fix Set-Cookie paths to match our proxy prefix
+  // Fix Set-Cookie headers forwarded from the backend
   const setCookies = responseHeaders.getSetCookie();
   if (setCookies.length > 0) {
     responseHeaders.delete('set-cookie');
     setCookies.forEach(cookie => {
-      // Rewrite Path=/ to Path=/api/proxy/
-      // And specifically fix common backend paths if they are hardcoded
-      let newCookie = cookie.replace(/Path=\//g, 'Path=/api/proxy/');
-      
-      // If the cookie was set for a specific domain, we might need to remove it 
-      // so it works on localhost
-      newCookie = newCookie.replace(/Domain=[^;]+;?/g, '');
-      
-      // Ensure SameSite=Lax for localhost development if not already set
-      if (!newCookie.includes('SameSite')) {
+      // Normalise Path to / so the cookie is available to the entire app,
+      // not just requests under /api/proxy/
+      let newCookie = cookie.replace(/Path=\/[^;]*/g, 'Path=/');
+      if (!newCookie.match(/Path=/i)) {
+        newCookie += '; Path=/';
+      }
+
+      // Strip Domain so the cookie binds to the current host (important on localhost)
+      newCookie = newCookie.replace(/;\s*Domain=[^;]+/gi, '');
+
+      // Ensure SameSite=Lax if not already set
+      if (!newCookie.match(/SameSite=/i)) {
         newCookie += '; SameSite=Lax';
       }
-      
+
       responseHeaders.append('set-cookie', newCookie);
     });
   }
@@ -121,11 +122,13 @@ async function handler(req: NextRequest) {
     }).catch(() => {});
   }
 
-  // SSE streams: pass body through directly so browser gets events in real-time
+  // SSE streams: configure headers for real-time delivery
   const isSSE = responseHeaders.get('content-type')?.includes('text/event-stream');
   if (isSSE) {
+    console.log('[proxy] SSE stream detected — configuring for real-time delivery');
     responseHeaders.set('cache-control', 'no-cache');
     responseHeaders.set('x-accel-buffering', 'no');
+    responseHeaders.set('connection', 'keep-alive');
   }
 
   return new NextResponse(backendRes.body, {

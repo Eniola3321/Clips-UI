@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import SectionHeader from "@/components/platforms/SectionHeader";
 import PlatformCard from "@/components/platforms/PlatformCard";
@@ -21,19 +22,31 @@ import {
   Wallet,
   Loader2,
   CheckCircle2,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import { useWallet } from "@/components/WalletProvider";
 import WalletButton from "@/components/shared/WalletButton";
 
+type ToastState = { type: "success" | "error"; message: string } | null;
+
 export default function PlatformsContent() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<ToastState>(null);
   const { address, connect, disconnect, isConnecting } = useWallet();
+  const searchParams = useSearchParams();
+
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
 
   useEffect(() => {
     const fetchPlatforms = async () => {
       try {
         const response = await apiClient.get('/platforms');
+        // Backend returns { success, connected, platforms: string[], accountCount }
         setConnectedPlatforms(response.data.platforms || []);
       } catch (error) {
         console.error("Failed to fetch platforms:", error);
@@ -44,11 +57,44 @@ export default function PlatformsContent() {
     fetchPlatforms();
   }, []);
 
-  const isConnected = (name: string) => 
-    connectedPlatforms.some(p => p.toUpperCase() === name.toUpperCase().replace(' / TWITTER', ''));
+  // Show feedback after OAuth callback redirect
+  useEffect(() => {
+    if (searchParams.get("connected") === "true") {
+      showToast("success", "Platform connected successfully!");
+    } else if (searchParams.get("error") === "true") {
+      showToast("error", "Failed to connect platform. Please try again.");
+    }
+  }, [searchParams, showToast]);
+
+  // Normalised comparison: "TikTok" → "tiktok", "X / Twitter" → "x"
+  const isConnected = (name: string) => {
+    const key = name.toLowerCase().split(" / ")[0].replace(/\s+/g, "");
+    return connectedPlatforms.some(p => p.toLowerCase() === key);
+  };
+
+  const handleDisconnected = (platformKey: string) => {
+    setConnectedPlatforms(prev => prev.filter(p => p.toLowerCase() !== platformKey.toLowerCase()));
+    showToast("success", `${platformKey.charAt(0).toUpperCase() + platformKey.slice(1)} disconnected.`);
+  };
 
   return (
     <DashboardLayout showHeader={false}>
+      {/* In-app toast */}
+      {toast && (
+        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl border shadow-xl animate-in slide-in-from-right-5 fade-in duration-300 ${
+          toast.type === "success"
+            ? "bg-brand/10 border-brand/30 text-brand"
+            : "bg-red-400/10 border-red-400/30 text-red-400"
+        }`}>
+          {toast.type === "success"
+            ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+            : <AlertCircle className="w-4 h-4 shrink-0" />}
+          <span className="text-[13px] font-medium">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between py-5 px-4 sm:px-6 lg:px-10 border-b border-white/[0.03] bg-[#050505]/80 backdrop-blur-md sticky top-0 z-30">
         <div className="flex items-center gap-12"> 
@@ -112,32 +158,36 @@ export default function PlatformsContent() {
                 description="Manage your main TikTok video feed"
                 icon={TikTokIcon} 
                 status={isConnected("TikTok") ? "ACTIVE" : "NOT LINKED"} 
-                ctaText={isConnected("TikTok") ? "Manage" : "Connect Account"}
+                ctaText="Connect Account"
                 variant="vertical"
+                onDisconnected={handleDisconnected}
               />
               <PlatformCard 
                 name="Instagram" 
                 description="Connect to sync Reels"
                 icon={InstagramIcon} 
                 status={isConnected("Instagram") ? "ACTIVE" : "NOT LINKED"} 
-                ctaText={isConnected("Instagram") ? "Manage" : "Connect Account"}
+                ctaText="Connect Account"
                 variant="vertical"
+                onDisconnected={handleDisconnected}
               />
               <PlatformCard 
                 name="YouTube" 
                 description="Import and sync your long-form YouTube content"
                 icon={YoutubeIcon} 
                 status={isConnected("YouTube") ? "ACTIVE" : "NOT LINKED"} 
-                ctaText={isConnected("YouTube") ? "Manage" : "Connect Account"}
+                ctaText="Connect Account"
                 variant="vertical"
+                onDisconnected={handleDisconnected}
               />
               <PlatformCard 
                 name="X / Twitter" 
                 description="Auto-post clips to X"
                 icon={TwitterIcon} 
-                status={isConnected("X") ? "ACTIVE" : "NOT LINKED"} 
-                ctaText={isConnected("X") ? "Manage" : "Connect Account"}
+                status={isConnected("X / Twitter") ? "ACTIVE" : "NOT LINKED"} 
+                ctaText="Connect Account"
                 variant="vertical"
+                onDisconnected={handleDisconnected}
               />
             </div>
           )}
