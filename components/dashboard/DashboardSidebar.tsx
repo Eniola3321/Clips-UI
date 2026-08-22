@@ -2,30 +2,46 @@
 
 import React from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { 
   LayoutDashboard, 
   Video, 
-  DollarSign, 
-  BarChart3, 
   Share2, 
   Settings, 
-  Zap,
-  ArrowUpRight,
   X,
-  LogOut
+  LogOut,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Logo from "@/components/shared/Logo";
 import UserAvatar from "@/components/shared/UserAvatar";
+import apiClient from "@/lib/apiClient";
 
-const menuItems = [
+// Fetch total clip count — reuses the same cache key as the dashboard query
+// so no extra network request is made when the dashboard has already loaded.
+async function fetchClipCount(): Promise<number> {
+  try {
+    const res = await apiClient.get("/clips?page=1&limit=1");
+    // Backend returns { data: [...], total, page, limit } or plain array
+    if (typeof res.data.total === "number") return res.data.total;
+    if (Array.isArray(res.data)) return res.data.length;
+    if (Array.isArray(res.data.data)) return res.data.total ?? res.data.data.length;
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+const staticMenuItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { id: "projects", label: "Projects", icon: Video, href: "/projects" },
+  { id: "ai-projects", label: "AI Projects", icon: Sparkles, href: "/ai-projects" },
+  // "projects" is injected conditionally below when the user has clips
   { id: "platforms", label: "Platforms", icon: Share2, href: "/platforms" },
   { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
 ];
+
+const projectsItem = { id: "projects", label: "Projects", icon: Video, href: "/projects" };
 
 interface SidebarProps {
   isOpen: boolean;
@@ -35,6 +51,27 @@ interface SidebarProps {
 export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+
+  const { data: clipCount = 0 } = useQuery({
+    queryKey: ["sidebarClipCount"],
+    queryFn: fetchClipCount,
+    // Refresh every 60s — no need to poll aggressively for a nav item
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const hasClips = clipCount > 0;
+
+  // Build the final menu — inject Projects right after AI Projects when user has clips
+  const menuItems = hasClips
+    ? [
+        staticMenuItems[0], // Dashboard
+        staticMenuItems[1], // AI Projects
+        projectsItem,       // Projects  ← only shown when clips exist
+        staticMenuItems[2], // Platforms
+        staticMenuItems[3], // Settings
+      ]
+    : staticMenuItems;
 
   return (
     <aside className={`fixed top-0 left-0 h-screen w-[280px] bg-[#080C0B] border-r border-white/5 z-50 flex flex-col transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -51,7 +88,7 @@ export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 px-4 space-y-1">
         {menuItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.id}
@@ -64,40 +101,18 @@ export default function DashboardSidebar({ isOpen, onClose }: SidebarProps) {
             >
               <item.icon className={`w-5 h-5 ${isActive ? "text-brand" : "text-[#4A5D54] group-hover:text-white"}`} />
               <span className="text-[14px]">{item.label}</span>
-              {isActive && (
+              {item.id === "projects" && hasClips && (
+                <span className="ml-auto px-1.5 py-0.5 rounded-md bg-brand/15 text-brand text-[9px] font-black tracking-wider">
+                  {clipCount > 99 ? "99+" : clipCount}
+                </span>
+              )}
+              {isActive && item.id !== "projects" && (
                 <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand shadow-[0_0_8px_rgba(0,229,143,0.8)]" />
               )}
             </Link>
           );
         })}
       </nav>
-
-      {/* Pro Plan Card */}
-      <div className="px-6 mb-6">
-        <div className="bg-[#0C120F] border border-[#1A2621] rounded-[20px] p-5 relative overflow-hidden group">
-          <div className="absolute -top-12 -right-12 w-24 h-24 bg-brand/10 blur-[40px] rounded-full pointer-events-none" />
-          
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <div className="text-[10px] font-bold text-brand uppercase tracking-wider mb-1">PRO PLAN</div>
-              <div className="text-[14px] font-bold text-white">80% used</div>
-            </div>
-            <Zap className="w-4 h-4 text-brand fill-brand" />
-          </div>
-
-          <div className="w-full h-1.5 bg-[#17201C] rounded-full mb-5 overflow-hidden">
-            <div 
-              className="h-full bg-brand rounded-full shadow-[0_0_10px_rgba(0,229,143,0.5)]" 
-              style={{ width: "80%" }} 
-            />
-          </div>
-
-          <button className="w-full bg-brand hover:bg-brand-hover text-black py-2.5 rounded-xl font-bold text-[13px] flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]">
-            Upgrade Now
-            <ArrowUpRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
 
       {/* User Info */}
       <div className="p-6 border-t border-white/5 bg-[#080C0B]/50">

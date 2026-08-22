@@ -151,3 +151,179 @@ export const updateClip = async (id: string, data: any) => {
   const response = await apiClient.patch(`/clips/${id}`, data);
   return response.data;
 };
+
+// ─── Clip Info (public, no auth) ──────────────────────────────────────────────
+
+export interface ClipInfo {
+  id: number;
+  title: string;
+  thumbnail: string | null;
+  clipUrl: string | null;
+  duration: number | null;
+  platform: string | null;
+  createdAt: string;
+  tippingEnabled: boolean;
+  owner: {
+    id: number;
+    name: string | null;
+    username: string | null;
+    stellarAddress: string | null;
+    walletConnected: boolean;
+  };
+}
+
+export const getClipInfo = async (id: string): Promise<ClipInfo> => {
+  const response = await apiClient.get(`/clips/${id}/info`);
+  return response.data;
+};
+
+// ─── Clip Download (Tip-Gated) ─────────────────────────────────────────────────
+
+export const getClipDownloadUrl = async (id: string) => {
+  const response = await apiClient.get(`/clips/${id}/download`);
+  return response.data;
+};
+
+// ─── Public Feed ───────────────────────────────────────────────────────────────
+
+export const getPublicFeed = async (page = 1, limit = 20) => {
+  const response = await apiClient.get(`/clips/feed?page=${page}&limit=${limit}`);
+  const clips = response.data.data || (Array.isArray(response.data) ? response.data : []);
+  return {
+    items: clips.map((clip: any) => ({
+      id: String(clip.id),
+      title: clip.title || `Clip #${clip.id}`,
+      thumbnail: clip.thumbnail || null,
+      duration: clip.duration ? formatDuration(clip.duration) : "00:00",
+      clipUrl: clip.clipUrl || null,
+      creatorAddress: clip.creatorAddress || null,
+      creatorName: clip.creatorName || null,
+      createdAt: clip.createdAt || null,
+    })),
+    total: response.data.total || clips.length,
+  };
+};
+
+// ─── Earnings Dashboard ─────────────────────────────────────────────────────────
+
+export const getEarningsData = async () => {
+  const response = await apiClient.get('/dashboard/earnings');
+  return response.data;
+};
+
+// ─── Upload Progress SSE ───────────────────────────────────────────────────────
+
+export const getUploadProgressUrl = (userId: string, videoId: string) => {
+  return `/api/sse/events/upload-progress/${userId}/${videoId}`;
+};
+
+// ─── Platform Disconnect ─────────────────────────────────────────────────────────
+
+export const disconnectPlatform = async (platform: string) => {
+  await apiClient.delete(`/platforms/${platform}`);
+};
+
+// ─── Post Clip to Platforms ────────────────────────────────────────────────────
+
+export const postClipToPlatforms = async (clipId: string, platforms: string[]) => {
+  const response = await apiClient.post('/platforms/post-clip', {
+    clipId,
+    platforms,
+  });
+  return response.data;
+};
+
+// ─── Stellar Auth V2 ────────────────────────────────────────────────────────────
+
+export const getStellarChallenge = async (stellarAddress: string) => {
+  const response = await apiClient.get('/auth/stellar/challenge', {
+    params: { stellarAddress },
+  });
+  return response.data;
+};
+
+export const connectStellarWallet = async (stellarAddress: string, signature: string, nonce: string) => {
+  const response = await apiClient.post('/auth/stellar/connect', {
+    stellarAddress,
+    signature,
+    nonce,
+  });
+  return response.data;
+};
+
+export const getConnectWalletChallenge = async (stellarAddress: string) => {
+  const response = await apiClient.get('/auth/stellar/connect/challenge', {
+    params: { stellarAddress },
+  });
+  // Returns { challenge: string, message: string, expiresIn: string }
+  // challenge format: "ClipsCash auth nonce: <nonce>\npublicKey: G...\npurpose: connect\n..."
+  return response.data as { challenge: string; message: string; expiresIn: string };
+};
+
+export const disconnectStellarWallet = async () => {
+  await apiClient.delete('/auth/stellar/disconnect');
+};
+
+export const loginWithStellar = async (stellarAddress: string, signature: string, message: string) => {
+  const response = await apiClient.post('/auth/stellar/login', {
+    stellarAddress,
+    signature,
+    message,
+  });
+  return response.data;
+};
+
+// ─── Proof of Creation ─────────────────────────────────────────────────────────
+
+export const getClipProof = async (clipId: string) => {
+  const response = await apiClient.get(`/clips/${clipId}/proof`);
+  return response.data;
+};
+
+// ─── Stellar Tips ───────────────────────────────────────────────────────────────
+
+export const buildTipTransaction = async (clipId: number, amount: string, senderAddress: string) => {
+  const response = await apiClient.post('/stellar/tips/build', {
+    clipId,
+    amount,
+    senderAddress,
+  });
+  return response.data;
+};
+
+export const submitTipTransaction = async (clipId: number, signedXdr: string, senderAddress: string) => {
+  const response = await apiClient.post('/stellar/tips/submit', {
+    clipId,
+    signedXdr,
+    senderAddress,
+  });
+  return response.data;
+};
+
+export const getTipStatus = async (tipId: string) => {
+  const response = await apiClient.get(`/stellar/tips/${tipId}`);
+  return response.data;
+};
+
+// ─── Change Password ────────────────────────────────────────────────────────────
+
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const response = await apiClient.patch('/users/me/password', {
+    currentPassword,
+    newPassword,
+  });
+  return response.data;
+};
+
+// ─── Delete Video ───────────────────────────────────────────────────────────────
+
+export const deleteVideo = async (videoId: string) => {
+  await apiClient.delete(`/videos/${videoId}`);
+};
+
+// ─── Update Video ──────────────────────────────────────────────────────────────
+
+export const updateVideo = async (videoId: string, data: any) => {
+  const response = await apiClient.patch(`/videos/${videoId}`, data);
+  return response.data;
+};

@@ -17,7 +17,7 @@ export default function PlatformsFooter() {
         </div>
         
         <div className="text-[13px] text-[#3A4A43] font-medium tracking-tight">
-          © {currentYear} ClipCash AI. All rights reserved.
+          © {currentYear} 4Reelz AI. All rights reserved.
         </div>
       </div>
     </footer>

@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import DashboardLayout from "@/components/shared/DashboardLayout";
-import { Settings, Lock, Trash2, Loader2, CheckCircle2, AlertCircle, User as UserIcon } from "lucide-react";
+import { Settings, Lock, Trash2, Loader2, Camera, Upload } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/shared/ToastProvider";
 import ConfirmModal from "@/components/shared/ConfirmModal";
+import UserAvatar from "@/components/shared/UserAvatar";
 
 export default function SettingsPage() {
   const { user, setUser, logout } = useAuth();
@@ -18,7 +19,9 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +38,46 @@ export default function SettingsPage() {
       toast(Array.isArray(errorMsg) ? errorMsg[0] : errorMsg, "error");
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast("Please select an image file", "error");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast("Image must be less than 5MB", "error");
+      return;
+    }
+
+    setAvatarLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+
+      const { data } = await apiClient.patch("/users/me/avatar", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      setUser(data);
+      toast("Profile picture updated successfully", "success");
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || "Failed to update profile picture";
+      toast(Array.isArray(errorMsg) ? errorMsg[0] : errorMsg, "error");
+    } finally {
+      setAvatarLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -94,16 +137,55 @@ export default function SettingsPage() {
           <div className="p-8 border-b border-white/5 bg-white/[0.01]">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand">
-                <UserIcon className="w-5 h-5" />
+                <Settings className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">Profile</h2>
-                <p className="text-sm text-[#5A6F65]">Update your public information.</p>
+                <p className="text-sm text-[#5A6F65]">Update your public information and profile picture.</p>
               </div>
             </div>
           </div>
 
           <div className="p-8">
+            {/* Profile Picture Upload */}
+            <div className="mb-8 flex items-center gap-6">
+              <div className="relative group">
+                <UserAvatar user={user} size="lg" className="w-24 h-24" />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={avatarLoading}
+                  className="absolute inset-0 w-24 h-24 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                >
+                  {avatarLoading ? (
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  ) : (
+                    <Camera className="w-6 h-6 text-white" />
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-white">Profile Picture</h3>
+                <p className="text-sm text-[#5A6F65] max-w-xs">
+                  Click on your avatar to upload a new image. Supports JPG, PNG, GIF up to 5MB.
+                </p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={avatarLoading}
+                  className="flex items-center gap-2 text-sm font-bold text-brand hover:text-brand-hover transition-colors disabled:opacity-50"
+                >
+                  <Upload className="w-4 h-4" />
+                  {avatarLoading ? "Uploading..." : "Upload New Picture"}
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleProfileUpdate} className="max-w-md space-y-6">
               <div className="space-y-4">
                 <div>

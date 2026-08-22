@@ -88,6 +88,20 @@ export async function signAuthMessage(message: string): Promise<string> {
 }
 
 /**
+ * Signs a Stellar transaction XDR with the connected wallet.
+ * Used for tipping transactions.
+ */
+export async function signTransaction(xdr: string): Promise<string> {
+  initWalletKit();
+  // Get the current address to ensure the correct account is signing
+  const { address } = await StellarWalletsKit.getAddress();
+  const { signedTxXdr } = await StellarWalletsKit.signTransaction(xdr, {
+    address,
+  });
+  return signedTxXdr;
+}
+
+/**
  * Normalises the signature from the wallet kit to a raw 128-character hex signature
  * that the backend expects, stripping any "ed25519:" prefix or converting from base64.
  */

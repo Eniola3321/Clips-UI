@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import SectionHeader from "@/components/platforms/SectionHeader";
 import PlatformCard from "@/components/platforms/PlatformCard";
 import HelpBanner from "@/components/platforms/HelpBanner";
 import PlatformsFooter from "@/components/platforms/PlatformsFooter";
+import { disconnectPlatform } from "@/lib/queries";
 import apiClient from "@/lib/apiClient";
 import { 
   InstagramIcon, 
@@ -16,8 +16,6 @@ import {
   TwitterIcon,
 } from "@/components/shared/Icons";
 import { 
-  Search, 
-  Bell, 
   Share2, 
   Wallet,
   Loader2,
@@ -34,7 +32,7 @@ export default function PlatformsContent() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState>(null);
-  const { address, connect, disconnect, isConnecting } = useWallet();
+  const { address, disconnect } = useWallet();
   const searchParams = useSearchParams();
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
@@ -72,9 +70,18 @@ export default function PlatformsContent() {
     return connectedPlatforms.some(p => p.toLowerCase() === key);
   };
 
-  const handleDisconnected = (platformKey: string) => {
-    setConnectedPlatforms(prev => prev.filter(p => p.toLowerCase() !== platformKey.toLowerCase()));
-    showToast("success", `${platformKey.charAt(0).toUpperCase() + platformKey.slice(1)} disconnected.`);
+  const handleDisconnected = async (platformKey: string) => {
+    try {
+      await disconnectPlatform(platformKey);
+      // Backend stores platforms in uppercase (e.g. "TIKTOK") — filter both ways
+      setConnectedPlatforms(prev =>
+        prev.filter(p => p.toLowerCase() !== platformKey.toLowerCase())
+      );
+      showToast("success", `${platformKey.charAt(0).toUpperCase() + platformKey.slice(1)} disconnected.`);
+    } catch (error) {
+      console.error("Failed to disconnect platform:", error);
+      showToast("error", "Failed to disconnect platform. Please try again.");
+    }
   };
 
   return (
@@ -95,41 +102,7 @@ export default function PlatformsContent() {
           </button>
         </div>
       )}
-      {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between py-5 px-4 sm:px-6 lg:px-10 border-b border-white/[0.03] bg-[#050505]/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="flex items-center gap-12"> 
-          <nav className="hidden lg:flex items-center gap-8 text-[13px] font-bold uppercase tracking-wider text-[#5A6F65]">
-            {["Connections", "Clips"].map((item) => (
-              <Link 
-                key={item} 
-                href={item === "Connections" ? "/platforms" : "/clips"}
-                className={`hover:text-white transition-colors relative py-1 ${item === "Connections" ? "text-brand" : "text-[#5A6F65]"}`}
-              >
-                {item}
-                {item === "Connections" && (
-                  <div className="absolute -bottom-6 left-0 right-0 h-0.5 bg-brand shadow-[0_0_8px_rgba(0,255,156,0.5)]" />
-                )}
-              </Link>
-            ))}
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-4 sm:gap-6">
-          <div className="hidden md:flex items-center gap-3 bg-white/[0.02] border border-white/5 px-4 py-2 rounded-full w-56 group focus-within:border-brand/40 transition-all">
-            <Search className="w-4 h-4 text-[#3A4A43]" />
-            <input 
-              type="text" 
-              placeholder="Search platforms..." 
-              className="bg-transparent border-none outline-none text-[12px] w-full text-white placeholder-[#3A4A43]"
-            />
-          </div>
-          
-          <button className="relative p-2.5 rounded-full bg-white/[0.02] border border-white/5 text-[#5A6F65] hover:text-white transition-all">
-            <Bell className="w-5 h-5" />
-            <div className="absolute top-2.5 right-2.5 w-2 h-2 bg-brand rounded-full border-2 border-[#050505]" />
-          </button>
-        </div>
-      </div>
+      {/* Top Navigation Bar removed */}
 
       <div className="px-4 sm:px-6 lg:px-10 py-12 space-y-16 max-w-[1400px] mx-auto w-full">
         {/* Header */}

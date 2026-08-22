@@ -6,7 +6,7 @@ import axios from 'axios';
 const getApiBaseUrl = () => {
   if (typeof window === 'undefined') {
     // Server side: call backend directly
-    return process.env.API_URL ?? 'https://clipcash-api.onrender.com';
+    return process.env.API_URL;
   }
   // Client side: always use the proxy route to avoid CORS errors
   return '/api/proxy';

@@ -77,16 +77,19 @@ export default function PlatformCard({ name, description, icon: Icon, status, ct
     setConfirmDisconnect(false);
     setConnectError(null);
     try {
-      await apiClient.delete(`/platforms/${platformKey}`);
+      // Backend is case-insensitive but docs show uppercase — send uppercase to be safe
+      const response = await apiClient.delete(`/platforms/${platformKey.toUpperCase()}`);
+      console.log(`[PlatformCard] DELETE /platforms/${platformKey.toUpperCase()} →`, response.status, response.data);
       onDisconnected?.(platformKey);
     } catch (error: any) {
       const httpStatus = error?.response?.status;
+      const backendMessage = error?.response?.data?.message ?? error?.response?.data?.error ?? null;
+      console.error(`[PlatformCard] DELETE /platforms/${platformKey.toUpperCase()} → ${httpStatus}`, backendMessage ?? error);
       if (httpStatus === 404) {
-        // Already disconnected — treat as success
+        // Backend says not found — it's already disconnected, treat as success
         onDisconnected?.(platformKey);
       } else {
-        setConnectError("Failed to disconnect. Please try again.");
-        console.error(`Failed to disconnect ${name}:`, error);
+        setConnectError(backendMessage ?? "Failed to disconnect. Please try again.");
       }
     } finally {
       setDisconnecting(false);

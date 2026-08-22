@@ -2,11 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import {
   Play,
   Download,
-  Edit,
   Check,
   Trash2,
   Loader2,
@@ -221,15 +219,6 @@ export default function ClipCard({
             {isSelected && <Check className="w-3 h-3 text-black stroke-[4px]" />}
           </div>
 
-          {/* Score badge */}
-          <div className={`absolute top-3 right-3 px-2 py-1 rounded-md backdrop-blur-md border z-20 ${
-            scoreKey === "high"
-              ? "bg-[#00E58F] border-brand text-black shadow-[0_0_20px_rgba(0,229,143,0.4)]"
-              : "bg-orange-500 border-orange-500 text-white"
-          }`}>
-            <span className="text-[9px] font-black tracking-widest leading-none">{score} SCORE</span>
-          </div>
-
           {/* Play overlay */}
           <div
             onClick={openPreview}
@@ -259,9 +248,6 @@ export default function ClipCard({
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Link href={`/projects/${id}/edit`} className="text-[#5A6F65] hover:text-brand transition-colors">
-                <Edit className="w-3 h-3" />
-              </Link>
               <button
                 onClick={handleDownload}
                 disabled={!clipUrl}

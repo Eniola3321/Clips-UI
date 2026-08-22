@@ -3,7 +3,9 @@
 import React from "react";
 import { Bell, Menu } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { useWallet } from "@/components/WalletProvider";
 import Link from "next/link";
+import WalletButton from "@/components/shared/WalletButton";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -11,7 +13,7 @@ interface HeaderProps {
 
 export default function DashboardHeader({ onMenuClick }: HeaderProps) {
   const { user } = useAuth();
-  const firstName = user?.fullName?.split(" ")[0] || "there";
+  const firstName = user?.username || user?.profile?.username || user?.fullName?.split(" ")[0] || "there";
 
   return (
     <header className="w-full border-b border-white/[0.03]">
@@ -30,7 +32,8 @@ export default function DashboardHeader({ onMenuClick }: HeaderProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <WalletButton className="px-4 py-3 rounded-xl bg-[#111111] border border-white/5 text-[#8e9895] hover:text-white hover:border-white/10 transition-all text-sm" />
           <button className="w-11 h-11 rounded-xl bg-[#111111] border border-white/5 flex items-center justify-center text-[#8e9895] hover:text-white transition-colors relative">
             <Bell className="w-5 h-5" />
           </button>

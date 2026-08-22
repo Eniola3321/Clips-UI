@@ -101,6 +101,8 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
       const protectedPaths = [
         "/dashboard",
         "/projects",
+        "/ai-projects",
+        "/my-projects",
         "/clips",
         "/platforms",
         "/onboarding",

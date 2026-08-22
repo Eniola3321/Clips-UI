@@ -1,156 +1,216 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import ProcessingHeader from "@/components/dashboard/ProcessingHeader";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import { getProjectsData } from "@/lib/queries";
+import apiClient from "@/lib/apiClient";
 import { Sparkles, Clock, RefreshCw, Zap, CheckCircle2, AlertCircle } from "lucide-react";
 
-// Status values the backend SSE stream can emit
-type ProcessingStatus = "analyzing" | "processing" | "done" | "completed" | "failed" | "error";
+// ─── Strategy ─────────────────────────────────────────────────────────────────
+// 1. Primary:  SSE via /api/sse/events/processing-progress/:videoId
+//    - Dedicated streaming proxy that pipes bytes without buffering
+//    - Gives real-time progress from the backend AI engine
+// 2. Fallback: Poll GET /videos/:id every 4 s
+//    - Kicks in automatically if SSE fails / drops after 8 s of silence
+//    - Checks clipsCount / status field on the video object
+// Both paths prefetch clips into React Query cache and navigate instantly.
 
-const MAX_RETRIES = 3;
+const SSE_SILENCE_TIMEOUT = 8_000;   // switch to poll if no SSE event in 8 s
+const POLL_INTERVAL       = 4_000;   // poll every 4 s
+const MAX_WAIT_MS         = 10 * 60 * 1000; // 10 min hard cap
+
+type Status = "analyzing" | "processing" | "done" | "completed" | "failed" | "error";
 
 function ProcessingContent() {
-  const [progress, setProgress] = useState(0);
-  const [statusMsg, setStatusMsg] = useState("Analyzing video retention patterns…");
+  const [progress,   setProgress]   = useState(0);
+  const [statusMsg,  setStatusMsg]  = useState("Connecting to AI engine…");
   const [clipsFound, setClipsFound] = useState<number | null>(null);
-  const [isDone, setIsDone] = useState(false);
-  const [hasError, setHasError] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isDone,     setIsDone]     = useState(false);
+  const [hasError,   setHasError]   = useState(false);
+  const [errorMsg,   setErrorMsg]   = useState<string | null>(null);
+  const [mode,       setMode]       = useState<"sse" | "polling">("sse");
+
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const videoId = searchParams.get("videoId");
+  const router       = useRouter();
+  const queryClient  = useQueryClient();
+  const videoId      = searchParams.get("videoId");
+
+  const navigated      = useRef(false);
+  const startedAt      = useRef(Date.now());
+  const esRef          = useRef<EventSource | null>(null);
+  const pollRef        = useRef<NodeJS.Timeout | null>(null);
+  const silenceRef     = useRef<NodeJS.Timeout | null>(null);
+  const usingPoll      = useRef(false);
 
   useEffect(() => {
     if (!videoId || videoId === "undefined") {
-      setStatusMsg("Missing video ID — redirecting to dashboard…");
+      setStatusMsg("Missing video ID — redirecting…");
       setTimeout(() => router.push("/dashboard"), 3000);
       return;
     }
 
-    // Route SSE through the proxy so the auth cookie is sent
-    const sseUrl = `/api/proxy/events/processing-progress/${videoId}`;
-    let es: EventSource | null = null;
-    let retryTimeout: NodeJS.Timeout | null = null;
-    let retryCount = 0;
-    let fatalError = false;
+    // ── Shared finish handler ──────────────────────────────────────────────
+    const finish = async (vid: string) => {
+      if (navigated.current) return;
+      navigated.current = true;
 
-    const stopWithError = (msg: string) => {
-      fatalError = true;
-      es?.close();
-      es = null;
-      setHasError(true);
-      setErrorMsg(msg);
-    };
+      esRef.current?.close();
+      if (pollRef.current)   clearInterval(pollRef.current);
+      if (silenceRef.current) clearTimeout(silenceRef.current);
 
-    /**
-     * Called the instant SSE reports success.
-     * Fetches the clips, seeds the React Query cache, then navigates.
-     * The projects page will find data already in cache and render immediately.
-     */
-    const finishAndNavigate = async () => {
       setIsDone(true);
       setProgress(100);
       setStatusMsg("All clips generated! Loading your clips…");
 
       try {
-        // Pre-fetch clips into the cache so /projects renders instantly
-        const clips = await getProjectsData(videoId);
-        queryClient.setQueryData(["projectsData", videoId], clips);
-      } catch {
-        // Non-fatal — the projects page will fetch on its own if cache miss
-      }
+        const clips = await getProjectsData(vid);
+        queryClient.setQueryData(["projectsData", vid], clips);
+        queryClient.invalidateQueries({ queryKey: ["sidebarClipCount"] });
+      } catch { /* non-fatal */ }
 
-      // Navigate immediately — no artificial delay
-      router.push(`/projects?videoId=${videoId}`);
+      router.push(`/projects?videoId=${vid}`);
     };
 
-    const connect = () => {
-      console.log("[SSE] Connecting to:", sseUrl);
-      es = new EventSource(sseUrl, { withCredentials: true });
+    const failWith = (msg: string) => {
+      esRef.current?.close();
+      if (pollRef.current)    clearInterval(pollRef.current);
+      if (silenceRef.current) clearTimeout(silenceRef.current);
+      setHasError(true);
+      setErrorMsg(msg);
+    };
+
+    // ── Polling fallback ───────────────────────────────────────────────────
+    const startPolling = () => {
+      if (usingPoll.current) return;
+      usingPoll.current = true;
+      setMode("polling");
+
+      const poll = async () => {
+        if (navigated.current) return;
+        if (Date.now() - startedAt.current > MAX_WAIT_MS) {
+          failWith("Processing is taking longer than expected. Check your Projects page in a few minutes.");
+          return;
+        }
+        try {
+          const res   = await apiClient.get(`/videos/${videoId}`);
+          const video = res.data;
+          const status: Status = video.status ?? "processing";
+
+          if (status === "failed" || status === "error") {
+            failWith(video.errorMessage || "Generation failed. Please try again.");
+            return;
+          }
+
+          // Animate progress based on elapsed time
+          const elapsed = (Date.now() - startedAt.current) / 1000;
+          if (status === "analyzing") {
+            setStatusMsg("Analyzing video retention patterns…");
+            setProgress(Math.min(25, Math.round(elapsed * 0.6)));
+          } else if (status === "processing") {
+            setStatusMsg("AI is generating viral clips…");
+            setProgress(Math.min(90, 25 + Math.round(elapsed * 0.4)));
+          }
+
+          const clips = video.clips ?? [];
+          const count = typeof video.clipsCount === "number"
+            ? video.clipsCount
+            : clips.length;
+
+          if (count > 0) setClipsFound(count);
+
+          if (status === "done" || status === "completed" || count > 0) {
+            await finish(videoId);
+          }
+        } catch (e: any) {
+          console.warn("[poll] transient error, retrying:", e?.message);
+        }
+      };
+
+      poll(); // immediate first check
+      pollRef.current = setInterval(poll, POLL_INTERVAL);
+    };
+
+    // ── SSE primary ────────────────────────────────────────────────────────
+    const connectSSE = () => {
+      // Dedicated SSE proxy — streams bytes without buffering
+      const url = `/api/sse/events/processing-progress/${videoId}`;
+      console.log("[sse] connecting →", url);
+
+      const es = new EventSource(url);
+      esRef.current = es;
+
+      // Silence watchdog — if no event arrives in SSE_SILENCE_TIMEOUT, fall back
+      const resetSilence = () => {
+        if (silenceRef.current) clearTimeout(silenceRef.current);
+        silenceRef.current = setTimeout(() => {
+          console.warn("[sse] silence timeout — switching to polling");
+          es.close();
+          startPolling();
+        }, SSE_SILENCE_TIMEOUT);
+      };
+      resetSilence();
 
       es.onopen = () => {
-        console.log("[SSE] Connection opened successfully");
-        retryCount = 0;
+        console.log("[sse] connected");
+        setStatusMsg("AI engine connected — analyzing your video…");
+        resetSilence();
       };
 
       es.onmessage = (event) => {
+        resetSilence(); // got a heartbeat / data — reset watchdog
         try {
           const data = JSON.parse(event.data);
-          console.log("[SSE] Received message:", data);
+          console.log("[sse] event:", data);
 
-          if (typeof data.progress === "number") setProgress(data.progress);
+          if (typeof data.progress === "number") {
+            setProgress(data.progress);
+          }
           if (typeof data.clipsFound === "number") {
             setClipsFound(data.clipsFound);
-          } else if (data.clips && Array.isArray(data.clips)) {
+          } else if (Array.isArray(data.clips) && data.clips.length > 0) {
             setClipsFound(data.clips.length);
           }
 
-          const status: ProcessingStatus = data.status;
+          const status: Status = data.status;
 
-          // ── Fatal error from the backend ──────────────────────────────────
           if (status === "failed" || status === "error") {
-            console.error("[SSE] Backend reported failure:", data.message);
-            stopWithError(
+            failWith(
               data.message && !data.message.toLowerCase().includes("status code")
                 ? data.message
-                : "Something went wrong while generating your clips. Please try again."
+                : "Generation failed. Please try again."
             );
             return;
           }
 
-          // ── Update status message only for non-error states ───────────────
           if (data.message) setStatusMsg(data.message);
 
-          // ── Success ───────────────────────────────────────────────────────
           if (status === "done" || status === "completed" || data.progress >= 100) {
-            console.log("[SSE] Processing complete — prefetching clips and navigating");
-            es?.close();
-            es = null;
-            finishAndNavigate();
+            finish(videoId);
           }
-        } catch (error) {
-          console.error("[SSE] Parse error:", error, "Raw data:", event.data);
+        } catch (e) {
+          console.warn("[sse] parse error:", e);
         }
       };
 
-      es.onerror = (error) => {
-        console.error("[SSE] Connection error:", error);
-        es?.close();
-        es = null;
-
-        if (fatalError) return;
-
-        retryCount += 1;
-        if (retryCount > MAX_RETRIES) {
-          stopWithError(
-            "We couldn't connect to the processing stream. Your video may still be processing — check your Projects in a few minutes."
-          );
-          return;
-        }
-
-        const delay = retryCount * 3000;
-        setStatusMsg(`Connection lost — retrying in ${delay / 1000}s… (${retryCount}/${MAX_RETRIES})`);
-        retryTimeout = setTimeout(() => {
-          console.log(`[SSE] Retry attempt ${retryCount}/${MAX_RETRIES}`);
-          connect();
-        }, delay);
+      es.onerror = () => {
+        console.warn("[sse] connection error — switching to polling");
+        es.close();
+        esRef.current = null;
+        if (silenceRef.current) clearTimeout(silenceRef.current);
+        if (!navigated.current) startPolling();
       };
     };
 
-    connect();
+    connectSSE();
 
     return () => {
-      console.log("[SSE] Cleaning up connection");
-      fatalError = true;
-      es?.close();
-      es = null;
-      if (retryTimeout) clearTimeout(retryTimeout);
+      esRef.current?.close();
+      if (pollRef.current)    clearInterval(pollRef.current);
+      if (silenceRef.current) clearTimeout(silenceRef.current);
     };
   }, [videoId, router, queryClient]);
 
@@ -173,11 +233,21 @@ function ProcessingContent() {
 
         <div className="space-y-3">
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
-            {isDone ? "Clips are ready!" : hasError ? "Generation failed" : "AI is finding viral moments…"}
+            {isDone
+              ? "Clips are ready!"
+              : hasError
+              ? "Generation failed"
+              : "AI is finding viral moments…"}
           </h1>
           <p className={`text-lg md:text-xl max-w-2xl mx-auto font-medium ${hasError ? "text-red-400" : "text-gray-400"}`}>
             {hasError ? errorMsg : statusMsg}
           </p>
+          {/* Show polling indicator unobtrusively */}
+          {mode === "polling" && !isDone && !hasError && (
+            <p className="text-[11px] text-[#3A4A43] font-medium">
+              Checking for updates every {POLL_INTERVAL / 1000}s…
+            </p>
+          )}
         </div>
       </div>
 
@@ -189,10 +259,10 @@ function ProcessingContent() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-6 h-6 rounded-full bg-[#111815] border border-white/5 flex items-center justify-center">
-                <RefreshCw className={`w-3.5 h-3.5 text-[#00FF85] ${!isDone ? "animate-spin-slow" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 text-[#00FF85] ${!isDone && !hasError ? "animate-spin" : ""}`} />
               </div>
               <span className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
-                Processing Stream
+                {mode === "sse" ? "Live Stream" : "Polling"}
               </span>
             </div>
             <span className="text-3xl font-black text-[#00FF85]">{progress}%</span>
@@ -200,7 +270,7 @@ function ProcessingContent() {
 
           <div className="relative h-4 w-full bg-[#111815] rounded-full overflow-hidden border border-white/5">
             <div
-              className="absolute top-0 left-0 h-full bg-[#00FF85] rounded-full transition-all duration-500 ease-out shadow-[0_0_20px_rgba(0,255,133,0.4)]"
+              className="absolute top-0 left-0 h-full bg-[#00FF85] rounded-full transition-all duration-700 ease-out shadow-[0_0_20px_rgba(0,255,133,0.4)]"
               style={{ width: `${progress}%` }}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
@@ -214,13 +284,13 @@ function ProcessingContent() {
                 {isDone
                   ? "Processing complete"
                   : progress > 0
-                  ? `${Math.round((100 - progress) * 0.6)} seconds remaining (est.)`
+                  ? `~${Math.max(1, Math.round((100 - progress) * 0.5))}s remaining`
                   : "Estimating time…"}
               </span>
             </div>
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <div className="w-2 h-2 rounded-full bg-[#00FF85] animate-pulse shadow-[0_0_8px_#00FF85]" />
-              <span className="text-gray-300">GPU Accelerated</span>
+              <div className={`w-2 h-2 rounded-full ${hasError ? "bg-red-400" : "bg-[#00FF85] animate-pulse"} shadow-[0_0_8px_#00FF85]`} />
+              <span className="text-gray-300">{hasError ? "Error" : "GPU Accelerated"}</span>
             </div>
           </div>
         </div>
@@ -282,8 +352,7 @@ function ProcessingContent() {
               Go to Dashboard
             </button>
             <p className="text-gray-500 text-xs text-center max-w-sm leading-relaxed">
-              You can leave this page — processing continues in the background.
-              Check your Projects when done.
+              You can leave — processing continues in the background. Check Projects when done.
             </p>
           </>
         )}
@@ -299,7 +368,7 @@ export default function ProcessingPage() {
       <Suspense
         fallback={
           <div className="flex-1 flex items-center justify-center text-white">
-            Loading…
+            <RefreshCw className="w-6 h-6 animate-spin text-brand" />
           </div>
         }
       >
@@ -310,7 +379,7 @@ export default function ProcessingPage() {
         <p className="text-gray-500 text-xs font-medium">© 2024 ClipCash AI. All rights reserved.</p>
         <div className="flex items-center gap-8">
           <Link href="/privacy" className="text-gray-500 hover:text-gray-300 text-xs font-medium transition-colors">Privacy Policy</Link>
-          <Link href="/terms" className="text-gray-500 hover:text-gray-300 text-xs font-medium transition-colors">Terms of Service</Link>
+          <Link href="/terms"   className="text-gray-500 hover:text-gray-300 text-xs font-medium transition-colors">Terms of Service</Link>
         </div>
       </footer>
     </DashboardLayout>

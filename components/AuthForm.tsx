@@ -213,16 +213,14 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
         <div className="relative group">
           <button
             type="button"
-            disabled
-            className="w-full flex items-center justify-center gap-3 bg-[#17201C] opacity-50 cursor-not-allowed border border-[#233129] text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px]"
+            onClick={() => {
+              window.location.href = "https://clipcash-api.onrender.com/auths/google";
+            }}
+            className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2B24] border border-[#233129] hover:border-brand/30 text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px] active:scale-[0.98]"
           >
             <GoogleIcon />
             Continue with Google
           </button>
-          <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/90 text-white text-[11px] px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10 shadow-xl">
-            Coming soon
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-black/90 rotate-45 border-r border-b border-white/10" />
-          </div>
         </div>
         <WalletButton
           onConnect={handleWalletConnect}

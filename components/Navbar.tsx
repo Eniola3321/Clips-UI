@@ -60,10 +60,11 @@ export default function Navbar({ variant = "landing", sticky = false }: NavbarPr
                 className={`text-[13px] font-bold uppercase tracking-wider relative py-1 transition-all duration-300 ${
                   isActive ? "text-white" : "text-[#5A6F65] hover:text-white"
                 }`}
+                aria-disabled="true"
               >
                 {link.label}
                 {isActive && (
-                  <div className="absolute -bottom-5 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_rgba(0,229,143,0.8)]" />
+                  <div className="absolute -bottom-5 left-0 right-0   h-0.5 bg-brand shadow-[0_0_10px_rgba(0,229,143,0.8)]" />
                 )}
               </Link>
             );

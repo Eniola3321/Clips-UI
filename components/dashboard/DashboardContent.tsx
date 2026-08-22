@@ -5,8 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getDashboardData, getVideos } from "@/lib/queries";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import StatCard from "@/components/dashboard/StatCard";
-import PlatformDistribution from "@/components/dashboard/PlatformDistribution";
-import AIInsightCard from "@/components/dashboard/AIInsightCard";
+import EarningsCard from "@/components/dashboard/EarningsCard";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import { Video, Globe, ChevronDown, Loader2 } from "lucide-react";
 
@@ -69,13 +68,8 @@ export default function DashboardContent({ stats: initialStats, projects: initia
         </div>
 
         {/* Middle Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          <div className="lg:col-span-2">
-            <PlatformDistribution />
-          </div>
-          <div>
-            <AIInsightCard />
-          </div>
+        <div>
+          <EarningsCard />
         </div>
 
         {/* Bottom Section: Recent Projects */}
