@@ -68,36 +68,31 @@ export default function WalletButton({ className, compact = false, onConnect }: 
         // Get the connect challenge (purpose: connect)
         const { challenge } = await getConnectWalletChallenge(addr);
 
-        // Extract the nonce UUID embedded in the challenge string.
+        if (!challenge) {
+          throw new Error("Could not get a challenge from the server.");
+        }
+
+        // Extract the nonce UUID from the challenge string.
         // Format: "ClipsCash auth nonce: <uuid>\npublicKey: G...\npurpose: connect\n..."
         const nonceMatch = challenge.match(/nonce:\s*([^\n\r]+)/i);
-        const nonce = nonceMatch?.[1]?.trim() ?? "";
+        const nonce      = nonceMatch?.[1]?.trim() ?? "";
 
         if (!nonce) {
           throw new Error("Could not extract nonce from challenge.");
         }
 
-        // signAuthMessage wraps in Stellar message envelope — same as the
-        // working login flow. Pass the raw kit output directly without
-        // hex-conversion so it matches what the backend verifies.
-        const rawSig = await signAuthMessage(challenge);
-
-        // Try the hex-converted form first (what StellarConnectDto expects).
-        // If that still gets 401, the backend must be fixed to accept the
-        // same signMessage format as /auths/wallet/signin.
+        // Sign the full challenge block — the backend verifies the signature
+        // against exactly this string using Keypair.verify().
+        // ensureHexSignature strips the 2-byte Freighter prefix to get clean 64 bytes.
+        const rawSig    = await signAuthMessage(challenge);
         const signature = ensureHexSignature(rawSig);
 
-        // Log everything so we can diagnose if it still fails
-        console.log("[connect] nonce:", nonce);
-        console.log("[connect] raw sig:", rawSig);
-        console.log("[connect] hex sig:", signature, "len:", signature.length);
-        console.log("[connect] payload:", { stellarAddress: addr, nonce, signature: signature.slice(0, 20) + "..." });
-
+        // POST { stellarAddress, nonce, signature } + JWT cookie (auto-sent)
         await connectStellarWallet(addr, signature, nonce);
 
-        // Step 6 — refresh user so stellarAddress is reflected everywhere
-        const apiClient = (await import("@/lib/apiClient")).default;
-        const { data: updatedUser } = await apiClient.get("/users/me");
+        // Refresh user so stellarAddress is reflected everywhere
+        const apiClientMod = (await import("@/lib/apiClient")).default;
+        const { data: updatedUser } = await apiClientMod.get("/users/me");
         setUser(updatedUser);
 
         toast("Wallet linked to your account!", "success");

@@ -9,176 +9,141 @@ import {
   Check,
   Info,
   Loader2,
+  AlertCircle,
+  Play,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { saveActiveJob } from "@/lib/processingStore";
+import { useYouTubeImport, isYouTubeUrl } from "@/lib/useYouTubeImport";
 
 export default function CreateClipsForm() {
-  const router = useRouter();
+  const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [activePlatform, setActivePlatform] = useState("TikTok");
-  const [autoGenerate, setAutoGenerate] = useState(true);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [urlValue, setUrlValue] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [autoGenerate,   setAutoGenerate]   = useState(true);
+  const [selectedFile,   setSelectedFile]   = useState<File | null>(null);
+  const [urlValue,       setUrlValue]       = useState("");
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // Three button states for the file upload path:
-  // "idle"      → no file selected       → "Upload Video" (disabled)
-  // "ready"     → file selected           → "Upload Video" (enabled, green)
-  // "uploading" → upload in progress      → spinner + "Uploading X%"
-  // "processing"→ upload done, 201 back   → spinner + "Generating Clips…"
   type UploadState = "idle" | "ready" | "uploading" | "processing";
   const [uploadState, setUploadState] = useState<UploadState>("idle");
 
+  const { state: ytState, run: runYouTube, reset: resetYouTube } = useYouTubeImport();
+  const ytBusy = ["fetching-info", "downloading", "uploading"].includes(ytState.phase);
+  const anyBusy = loading || ytBusy;
+
   const platforms = [
-    { name: "TikTok", icon: "📱" },
+    { name: "TikTok",    icon: "📱" },
     { name: "Instagram", icon: "📸" },
     { name: "YT Shorts", icon: "📺" },
   ];
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      setUploadState("ready");
-      setError("");
-    }
+  const platformToApiValue = (name: string): string => {
+    if (name === "YT Shorts") return "youtube";
+    return name.toLowerCase();
   };
 
-  const handleUploadClick = () => {
-    if (loading) return;
-    fileInputRef.current?.click();
-  };
-
-  // ── URL import ────────────────────────────────────────────────────────────
-
-  /**
-   * Validates any YouTube, TikTok, or Vimeo URL format.
-   * Handles: youtu.be, youtube.com/watch, youtube.com/shorts,
-   *          tiktok.com/@user/video, vm.tiktok.com, vimeo.com
-   */
   const isSupportedUrl = (val: string): boolean => {
     try {
-      const { hostname, pathname } = new URL(val);
+      const { hostname } = new URL(val);
       const host = hostname.replace("www.", "");
       if (host === "youtube.com" || host === "youtu.be") return true;
       if (host === "tiktok.com" || host === "vm.tiktok.com" || host === "vt.tiktok.com") return true;
       if (host === "vimeo.com") return true;
       return false;
-    } catch {
-      // URL constructor throws on invalid URLs
-      return false;
-    }
+    } catch { return false; }
   };
 
-  /**
-   * Maps the UI platform name to the value the backend expects.
-   */
-  const platformToApiValue = (name: string): string => {
-    if (name === "YT Shorts") return "youtube";
-    return name.toLowerCase(); // "TikTok" → "tiktok", "Instagram" → "instagram"
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) { setSelectedFile(file); setUploadState("ready"); setError(""); }
   };
+
+  // ── URL import ─────────────────────────────────────────────────────────────
 
   const handleFetchUrl = async () => {
-    if (!urlValue.trim()) return;
-
-    if (!isSupportedUrl(urlValue.trim())) {
+    const trimmed = urlValue.trim();
+    if (!trimmed) return;
+    if (!isSupportedUrl(trimmed)) {
       setError("Only YouTube, TikTok, and Vimeo URLs are supported.");
       return;
     }
-
-    setLoading(true);
     setError("");
+    resetYouTube();
+
+    // YouTube — 5-step pipeline via useYouTubeImport
+    if (isYouTubeUrl(trimmed)) {
+      const videoId = await runYouTube(trimmed, platformToApiValue(activePlatform));
+      if (videoId) router.push(`/dashboard/processing?videoId=${videoId}`);
+      return;
+    }
+
+    // TikTok / Vimeo — existing from-url path (unchanged)
+    setLoading(true);
     try {
       const response = await apiClient.post("/videos/from-url", {
-        url: urlValue.trim(),
+        url:             trimmed,
         targetPlatforms: [platformToApiValue(activePlatform)],
-        style: "viral",
+        style:           "viral",
       });
-      const data = response.data;
-      // Backend returns { video: { id: ... } } or { id: ... }
+      const data    = response.data;
       const videoId = data?.video?.id ?? data?.id ?? data?.data?.id ?? data?.videoId;
-      if (!videoId) {
-        console.error("[from-url] Unexpected response shape:", data);
-        throw new Error("Failed to get video ID from response.");
-      }
+      if (!videoId) throw new Error("Failed to get video ID from response.");
+      saveActiveJob(String(videoId));
       router.push(`/dashboard/processing?videoId=${videoId}`);
     } catch (err: any) {
-      if (err.response?.status === 401) {
-        setError("Session expired — redirecting to login…");
-        return;
-      }
-      if (err.response?.status === 429) {
-        setError("Too many requests. Please wait a moment and try again.");
-        return;
-      }
-      const message =
-        err.response?.data?.message || "Failed to submit URL. Please try again.";
-      setError(Array.isArray(message) ? message[0] : message);
+      if (err.response?.status === 401) { setError("Session expired — redirecting to login…"); return; }
+      if (err.response?.status === 429) { setError("Too many requests. Please wait a moment and try again."); return; }
+      const msg = err.response?.data?.message ?? "Failed to submit URL. Please try again.";
+      setError(Array.isArray(msg) ? msg[0] : msg);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── File upload → navigate to processing ──────────────────────────────────
+  // ── File upload ────────────────────────────────────────────────────────────
 
   const handleUploadAndGenerate = async () => {
     if (!selectedFile) return;
-
     setLoading(true);
     setUploadState("uploading");
     setError("");
     setUploadProgress(0);
-
     try {
       const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("title", selectedFile.name.replace(/\.[^/.]+$/, ""));
+      formData.append("file",       selectedFile);
+      formData.append("title",      selectedFile.name.replace(/\.[^/.]+$/, ""));
       formData.append("sourceType", "upload");
-      formData.append("style", "viral");
+      formData.append("style",      "viral");
 
       const response = await apiClient.post("/videos", formData, {
-        // Let the browser set Content-Type with multipart boundary
-        headers: { "Content-Type": undefined },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const pct = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            setUploadProgress(pct);
-          }
+        headers:          { "Content-Type": undefined },
+        onUploadProgress: (e) => {
+          if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total));
         },
-        timeout: 10 * 60 * 1000, // 10 min for large files
+        timeout: 10 * 60 * 1000,
       });
 
-      const data = response.data;
+      const data    = response.data;
       const videoId = data?.video?.id ?? data?.id ?? data?.data?.id ?? data?.videoId;
-      if (!videoId) {
-        console.error("[upload] Unexpected response shape:", data);
-        throw new Error("Failed to get video ID from response.");
-      }
+      if (!videoId) throw new Error("Failed to get video ID from response.");
 
       setUploadState("processing");
       setUploadProgress(100);
+      saveActiveJob(String(videoId));
       router.push(`/dashboard/processing?videoId=${videoId}`);
     } catch (err: any) {
       const status = err.response?.status;
-      if (status === 401) {
-        setError("Session expired — redirecting to login…");
-        setUploadState(selectedFile ? "ready" : "idle");
-        return;
-      }
-      let message =
-        err.response?.data?.message ||
-        err.message ||
-        "Upload failed. Please try again.";
-      if (Array.isArray(message)) message = message[0];
-      if (status === 429) message = "Upload limit reached (3/min). Please wait a moment.";
-      if (status === 400) message = "Invalid file. Use MP4, MOV, AVI, WEBM or MPEG under 2GB.";
-      if (status === 500) message = "Server error during upload. Please try again shortly.";
-      setError(message);
+      let msg = err.response?.data?.message ?? err.message ?? "Upload failed. Please try again.";
+      if (Array.isArray(msg)) msg = msg[0];
+      if (status === 401) msg = "Session expired — redirecting to login…";
+      else if (status === 429) msg = "Upload limit reached. Please wait a moment.";
+      else if (status === 400) msg = "Invalid file. Use MP4, MOV, AVI, WEBM or MPEG under 2GB.";
+      else if (status === 500) msg = "Server error during upload. Please try again shortly.";
+      setError(msg);
       setUploadState(selectedFile ? "ready" : "idle");
     } finally {
       setLoading(false);
@@ -186,40 +151,17 @@ export default function CreateClipsForm() {
     }
   };
 
-  // ── Button label / state ───────────────────────────────────────────────────
+  // Whether to show the YouTube progress/error panel
+  const showYtPanel = ytState.phase !== "idle" && ytState.phase !== "done";
 
-  const buttonLabel = () => {
-    if (uploadState === "uploading") {
-      return (
-        <>
-          <Loader2 className="w-5 h-5 animate-spin" />
-          {uploadProgress > 0 ? `Uploading ${uploadProgress}%` : "Uploading…"}
-        </>
-      );
-    }
-    if (uploadState === "processing") {
-      return (
-        <>
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Generating Clips…
-        </>
-      );
-    }
-    if (uploadState === "ready") {
-      return (
-        <>
-          <Sparkles className="w-5 h-5 fill-black" />
-          Generate Clips
-        </>
-      );
-    }
-    // idle — no file selected
-    return (
-      <>
-        <Upload className="w-5 h-5" />
-        Upload Video
-      </>
-    );
+  const uploadButtonLabel = () => {
+    if (uploadState === "uploading")
+      return <><Loader2 className="w-5 h-5 animate-spin" />{uploadProgress > 0 ? `Uploading ${uploadProgress}%` : "Uploading…"}</>;
+    if (uploadState === "processing")
+      return <><Loader2 className="w-5 h-5 animate-spin" />Generating Clips…</>;
+    if (uploadState === "ready")
+      return <><Sparkles className="w-5 h-5 fill-black" />Generate Clips</>;
+    return <><Upload className="w-5 h-5" />Upload Video</>;
   };
 
   return (
@@ -227,11 +169,13 @@ export default function CreateClipsForm() {
       <div className="absolute -top-24 -right-24 w-48 h-48 bg-brand/5 blur-[80px] rounded-full pointer-events-none group-hover:bg-brand/10 transition-all duration-700" />
 
       <div className="space-y-8">
+
         {/* ── URL import ── */}
         <div className="space-y-4">
           <label className="text-[13px] font-bold text-[#5A6F65] uppercase tracking-wider block ml-1">
             Import from URL
           </label>
+
           <div className="relative flex items-center group/input">
             <div className="absolute left-6 text-[#3A4A43] group-focus-within/input:text-brand transition-colors">
               <LinkIcon className="w-5 h-5" />
@@ -239,24 +183,72 @@ export default function CreateClipsForm() {
             <input
               type="text"
               value={urlValue}
-              onChange={(e) => setUrlValue(e.target.value)}
+              onChange={(e) => { setUrlValue(e.target.value); setError(""); resetYouTube(); }}
               onKeyDown={(e) => e.key === "Enter" && handleFetchUrl()}
-              disabled={loading}
+              disabled={anyBusy}
               placeholder="Paste YouTube, TikTok or Vimeo link here…"
               className="w-full h-14 bg-[#0B100E] border border-white/[0.03] focus:border-brand/40 focus:ring-4 focus:ring-brand/5 rounded-2xl pl-16 pr-44 text-[14px] font-medium placeholder-[#3A4A43] text-white transition-all outline-none disabled:opacity-50"
             />
             <button
               onClick={handleFetchUrl}
-              disabled={loading || !urlValue.trim()}
+              disabled={anyBusy || !urlValue.trim()}
               className="absolute right-2 px-6 py-3 bg-brand hover:bg-brand-hover text-black font-bold rounded-xl text-[14px] transition-all active:scale-[0.98] shadow-[0_4px_20px_rgba(0,229,143,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                "Fetch Video"
-              )}
+              {anyBusy
+                ? <Loader2 className="w-5 h-5 animate-spin" />
+                : "Fetch Video"}
             </button>
           </div>
+
+          {/* YouTube import progress / error panel */}
+          {showYtPanel && (
+            <div className={`rounded-2xl border px-5 py-4 space-y-3 transition-all ${
+              ytState.phase === "error"
+                ? "bg-red-500/5 border-red-500/20"
+                : "bg-brand/5 border-brand/20"
+            }`}>
+              {ytState.phase === "error" ? (
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-[13px] text-red-400 font-medium leading-relaxed">
+                    {ytState.error}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Play className="w-4 h-4 text-brand" />
+                      <span className="text-[13px] font-bold text-white truncate max-w-[220px]">
+                        {ytState.videoTitle ?? "YouTube Import"}
+                      </span>
+                    </div>
+                    <span className="text-[13px] font-black text-brand shrink-0 ml-3">
+                      {ytState.progress >= 0 ? `${ytState.progress}%` : "…"}
+                    </span>
+                  </div>
+
+                  <div className="h-2 bg-[#0B100E] rounded-full overflow-hidden border border-white/5">
+                    <div
+                      className="h-full bg-brand rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(0,229,143,0.4)]"
+                      style={{
+                        width:   ytState.progress >= 0 ? `${ytState.progress}%` : "100%",
+                        opacity: ytState.progress <  0 ? 0.35 : 1,
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-[11px] font-medium text-[#5A6F65]">{ytState.label}</p>
+
+                  {ytState.warning && (
+                    <p className="text-[11px] text-yellow-400 font-medium">
+                      ⚠ {ytState.warning}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Divider ── */}
@@ -269,30 +261,20 @@ export default function CreateClipsForm() {
 
         {/* ── File upload area ── */}
         <div
-          className={`group/upload relative ${loading ? "pointer-events-none opacity-50" : "cursor-pointer"}`}
-          onClick={handleUploadClick}
+          className={`group/upload relative ${anyBusy ? "pointer-events-none opacity-50" : "cursor-pointer"}`}
+          onClick={() => { if (!anyBusy) fileInputRef.current?.click(); }}
         >
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-            accept="video/*"
-          />
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="video/*" />
           <div className="w-full aspect-[21/9] sm:aspect-[4.5/1] border-2 border-dashed border-white/5 group-hover/upload:border-brand/20 rounded-[24px] bg-white/[0.01] group-hover/upload:bg-brand/[0.01] flex flex-col items-center justify-center gap-4 transition-all duration-500 overflow-hidden">
             <div className="w-14 h-14 rounded-2xl bg-[#0B100E] border border-white/5 flex items-center justify-center group-hover/upload:scale-110 group-hover/upload:border-brand/20 transition-all duration-500 relative">
               <div className="absolute inset-0 bg-brand/5 blur-xl group-hover/upload:bg-brand/10 transition-colors rounded-full" />
-              {selectedFile ? (
-                <Check className="w-6 h-6 text-brand relative z-10" />
-              ) : (
-                <Upload className="w-6 h-6 text-[#5A6F65] group-hover/upload:text-brand relative z-10" />
-              )}
+              {selectedFile
+                ? <Check  className="w-6 h-6 text-brand relative z-10" />
+                : <Upload className="w-6 h-6 text-[#5A6F65] group-hover/upload:text-brand relative z-10" />}
             </div>
             <div className="text-center space-y-1 relative z-10">
               <p className="text-[16px] font-bold text-white group-hover/upload:text-brand transition-colors">
-                {selectedFile
-                  ? selectedFile.name
-                  : "Click to upload or drag and drop"}
+                {selectedFile ? selectedFile.name : "Click to upload or drag and drop"}
               </p>
               <p className="text-[12px] font-medium text-[#3A4A43]">
                 {selectedFile
@@ -303,14 +285,14 @@ export default function CreateClipsForm() {
           </div>
         </div>
 
-        {/* Error */}
+        {/* Generic error (TikTok / Vimeo / file) */}
         {error && (
           <div className="text-red-400 text-sm text-center bg-red-400/10 py-3 rounded-xl border border-red-400/20">
             {error}
           </div>
         )}
 
-        {/* Upload progress bar */}
+        {/* File upload progress bar */}
         {loading && uploadProgress > 0 && uploadProgress < 100 && (
           <div className="space-y-2">
             <div className="flex justify-between text-[12px] font-bold text-[#5A6F65]">
@@ -346,19 +328,11 @@ export default function CreateClipsForm() {
                       : "bg-[#0B100E] border-white/5 text-[#5A6F65] hover:text-white hover:border-white/10"
                   }`}
                 >
-                  <span
-                    className={
-                      activePlatform === platform.name
-                        ? "opacity-100"
-                        : "opacity-40 grayscale"
-                    }
-                  >
+                  <span className={activePlatform === platform.name ? "opacity-100" : "opacity-40 grayscale"}>
                     {platform.icon}
                   </span>
                   {platform.name}
-                  {activePlatform === platform.name && (
-                    <Check className="w-3.5 h-3.5 ml-1" />
-                  )}
+                  {activePlatform === platform.name && <Check className="w-3.5 h-3.5 ml-1" />}
                 </button>
               ))}
             </div>
@@ -369,21 +343,13 @@ export default function CreateClipsForm() {
               <p className="text-[14px] font-bold text-white group-hover/toggle:text-brand transition-colors">
                 Auto-generate clips
               </p>
-              <p className="text-[11px] font-medium text-[#5A6F65]">
-                Extract 50–200 viral moments
-              </p>
+              <p className="text-[11px] font-medium text-[#5A6F65]">Extract 50–200 viral moments</p>
             </div>
             <button
               onClick={() => setAutoGenerate(!autoGenerate)}
-              className={`w-12 h-6 rounded-full relative transition-all duration-300 ${
-                autoGenerate ? "bg-brand" : "bg-[#1A221E]"
-              }`}
+              className={`w-12 h-6 rounded-full relative transition-all duration-300 ${autoGenerate ? "bg-brand" : "bg-[#1A221E]"}`}
             >
-              <div
-                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${
-                  autoGenerate ? "left-7" : "left-1"
-                }`}
-              />
+              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${autoGenerate ? "left-7" : "left-1"}`} />
             </button>
           </div>
         </div>
@@ -393,27 +359,25 @@ export default function CreateClipsForm() {
           <div className="flex items-center gap-2.5 text-[#5A6F65]">
             <Info className="w-4 h-4" />
             <span className="text-[13px] font-medium tracking-tight">
-              Estimated processing time:{" "}
-              <span className="text-white">4–6 minutes</span>
+              Estimated processing time: <span className="text-white">4–6 minutes</span>
             </span>
           </div>
 
-          {/* Dynamic button: idle → Upload Video | ready → Generate Clips */}
           <button
             onClick={handleUploadAndGenerate}
-            disabled={loading || !selectedFile}
-            className={`w-full sm:w-auto px-10 py-4 rounded-2xl text-[16px] font-black flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:cursor-not-allowed
-              ${
-                uploadState === "ready"
-                  ? "bg-brand hover:bg-brand-hover text-black shadow-[0_0_30px_rgba(0,229,143,0.3)] hover:shadow-[0_0_40px_rgba(0,229,143,0.5)]"
-                  : uploadState === "idle"
-                  ? "bg-[#0B100E] border border-white/10 text-[#5A6F65] opacity-50 cursor-not-allowed"
-                  : "bg-brand text-black opacity-80"
-              }`}
+            disabled={anyBusy || !selectedFile}
+            className={`w-full sm:w-auto px-10 py-4 rounded-2xl text-[16px] font-black flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
+              uploadState === "ready"
+                ? "bg-brand hover:bg-brand-hover text-black shadow-[0_0_30px_rgba(0,229,143,0.3)] hover:shadow-[0_0_40px_rgba(0,229,143,0.5)]"
+                : uploadState === "idle"
+                ? "bg-[#0B100E] border border-white/10 text-[#5A6F65] opacity-50 cursor-not-allowed"
+                : "bg-brand text-black opacity-80"
+            }`}
           >
-            {buttonLabel()}
+            {uploadButtonLabel()}
           </button>
         </div>
+
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import ProcessingHeader from "@/components/dashboard/ProcessingHeader";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import { getProjectsData } from "@/lib/queries";
 import apiClient from "@/lib/apiClient";
+import { loadActiveJob, saveActiveJob, clearActiveJob } from "@/lib/processingStore";
 import { Sparkles, Clock, RefreshCw, Zap, CheckCircle2, AlertCircle } from "lucide-react";
 
 // ─── Strategy ─────────────────────────────────────────────────────────────────
@@ -15,19 +16,33 @@ import { Sparkles, Clock, RefreshCw, Zap, CheckCircle2, AlertCircle } from "luci
 //    - Dedicated streaming proxy that pipes bytes without buffering
 //    - Gives real-time progress from the backend AI engine
 // 2. Fallback: Poll GET /videos/:id every 4 s
-//    - Kicks in automatically if SSE fails / drops after 8 s of silence
+//    - Kicks in automatically if SSE fails / drops after 10 s of silence
 //    - Checks clipsCount / status field on the video object
 // Both paths prefetch clips into React Query cache and navigate instantly.
+//
+// Persistence (refresh / leave-and-come-back):
+//  - videoId is stored in localStorage (via processingStore) by CreateClipsForm /
+//    URLForm before navigating here.
+//  - On mount, if the URL has no videoId we fall back to the stored job so a
+//    refresh or direct visit to /dashboard/processing re-attaches automatically.
+//  - startedAt is also persisted so elapsed-time estimates stay correct after reload.
+//  - The store entry is cleared only on success or on an unrecoverable error,
+//    so closing the tab mid-job and reopening it still reconnects.
 
-const SSE_SILENCE_TIMEOUT = 8_000;   // switch to poll if no SSE event in 8 s
+const SSE_SILENCE_TIMEOUT = 10_000;  // switch to poll if no SSE event in 10 s
 const POLL_INTERVAL       = 4_000;   // poll every 4 s
-const MAX_WAIT_MS         = 10 * 60 * 1000; // 10 min hard cap
+const MAX_WAIT_MS         = 15 * 60 * 1000; // 15 min hard cap (up from 10 — long videos need more time)
 
 type Status = "analyzing" | "processing" | "done" | "completed" | "failed" | "error";
 
 function ProcessingContent() {
   const [progress,   setProgress]   = useState(0);
-  const [statusMsg,  setStatusMsg]  = useState("Connecting to AI engine…");
+  const [statusMsg,  setStatusMsg]  = useState(() => {
+    // If we're resuming a stored job show a reconnecting message instantly
+    const job = loadActiveJob();
+    const elapsed = job ? Math.round((Date.now() - job.startedAt) / 1000) : 0;
+    return elapsed > 5 ? "Reconnecting to AI engine…" : "Connecting to AI engine…";
+  });
   const [clipsFound, setClipsFound] = useState<number | null>(null);
   const [isDone,     setIsDone]     = useState(false);
   const [hasError,   setHasError]   = useState(false);
@@ -37,10 +52,29 @@ function ProcessingContent() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const queryClient  = useQueryClient();
-  const videoId      = searchParams.get("videoId");
+
+  // ── Resolve videoId ────────────────────────────────────────────────────────
+  // Priority: URL param → localStorage store (refresh / leave-and-return)
+  // If neither exists we redirect to dashboard.
+  const paramId = searchParams.get("videoId");
+  const storedJob = loadActiveJob();
+  const videoId   = (paramId && paramId !== "undefined") ? paramId : storedJob?.videoId ?? null;
+
+  // If we recovered the videoId from the store but the URL doesn't have it,
+  // rewrite the URL so the user can share/bookmark it and so refreshes work.
+  useEffect(() => {
+    if (!paramId || paramId === "undefined") {
+      if (videoId) {
+        router.replace(`/dashboard/processing?videoId=${videoId}`);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const navigated      = useRef(false);
-  const startedAt      = useRef(Date.now());
+  // Restore startedAt from the store so elapsed-time estimates survive a refresh
+  const startedAt      = useRef(storedJob?.startedAt ?? Date.now());
+  // Track the highest progress value seen from SSE so polling never goes backwards
+  const lastSseProgress = useRef(0);
   const esRef          = useRef<EventSource | null>(null);
   const pollRef        = useRef<NodeJS.Timeout | null>(null);
   const silenceRef     = useRef<NodeJS.Timeout | null>(null);
@@ -48,10 +82,14 @@ function ProcessingContent() {
 
   useEffect(() => {
     if (!videoId || videoId === "undefined") {
-      setStatusMsg("Missing video ID — redirecting…");
+      setStatusMsg("No active job found — redirecting…");
       setTimeout(() => router.push("/dashboard"), 3000);
       return;
     }
+
+    // Ensure the store is up-to-date (covers the refresh case where the URL
+    // param is present but the store was cleared, e.g. user copied the URL)
+    saveActiveJob(videoId);
 
     // ── Shared finish handler ──────────────────────────────────────────────
     const finish = async (vid: string) => {
@@ -61,6 +99,9 @@ function ProcessingContent() {
       esRef.current?.close();
       if (pollRef.current)   clearInterval(pollRef.current);
       if (silenceRef.current) clearTimeout(silenceRef.current);
+
+      // Job done — remove the persisted entry so a fresh visit starts clean
+      clearActiveJob();
 
       setIsDone(true);
       setProgress(100);
@@ -79,6 +120,8 @@ function ProcessingContent() {
       esRef.current?.close();
       if (pollRef.current)    clearInterval(pollRef.current);
       if (silenceRef.current) clearTimeout(silenceRef.current);
+      // Clear the store on unrecoverable failure so the user can start fresh
+      clearActiveJob();
       setHasError(true);
       setErrorMsg(msg);
     };
@@ -98,21 +141,25 @@ function ProcessingContent() {
         try {
           const res   = await apiClient.get(`/videos/${videoId}`);
           const video = res.data;
-          const status: Status = video.status ?? "processing";
+          const status: string = (video.status ?? "processing").toLowerCase();
 
           if (status === "failed" || status === "error") {
             failWith(video.errorMessage || "Generation failed. Please try again.");
             return;
           }
 
-          // Animate progress based on elapsed time
+          // Animate progress based on elapsed time — but never go below what
+          // SSE already reported. This prevents the bar jumping backwards when
+          // we switch from SSE to polling mid-job.
           const elapsed = (Date.now() - startedAt.current) / 1000;
           if (status === "analyzing") {
             setStatusMsg("Analyzing video retention patterns…");
-            setProgress(Math.min(25, Math.round(elapsed * 0.6)));
+            const estimate = Math.min(25, Math.round(elapsed * 0.6));
+            if (estimate > lastSseProgress.current) setProgress(estimate);
           } else if (status === "processing") {
             setStatusMsg("AI is generating viral clips…");
-            setProgress(Math.min(90, 25 + Math.round(elapsed * 0.4)));
+            const estimate = Math.min(95, 25 + Math.round(elapsed * 0.4));
+            if (estimate > lastSseProgress.current) setProgress(estimate);
           }
 
           const clips = video.clips ?? [];
@@ -122,7 +169,14 @@ function ProcessingContent() {
 
           if (count > 0) setClipsFound(count);
 
-          if (status === "done" || status === "completed" || count > 0) {
+          // Accept any completion-like status string the backend may use —
+          // don't require clipsCount > 0 because clips may still be committing
+          // to the database at the exact moment we poll.
+          const DONE_STATUSES = ["done", "completed", "complete", "finished", "success"];
+          const isDoneStatus  = DONE_STATUSES.includes(status?.toLowerCase?.() ?? "");
+          const hasClips      = count > 0;
+
+          if (isDoneStatus || hasClips) {
             await finish(videoId);
           }
         } catch (e: any) {
@@ -168,6 +222,10 @@ function ProcessingContent() {
 
           if (typeof data.progress === "number") {
             setProgress(data.progress);
+            // Track highest SSE progress so polling never goes backwards
+            if (data.progress > lastSseProgress.current) {
+              lastSseProgress.current = data.progress;
+            }
           }
           if (typeof data.clipsFound === "number") {
             setClipsFound(data.clipsFound);
@@ -175,7 +233,7 @@ function ProcessingContent() {
             setClipsFound(data.clips.length);
           }
 
-          const status: Status = data.status;
+          const status: string = (data.status ?? "").toLowerCase();
 
           if (status === "failed" || status === "error") {
             failWith(
@@ -188,7 +246,13 @@ function ProcessingContent() {
 
           if (data.message) setStatusMsg(data.message);
 
-          if (status === "done" || status === "completed" || data.progress >= 100) {
+          // Accept any completion-like status string, progress=100, or clips attached
+          const DONE_STATUSES = ["done", "completed", "complete", "finished", "success"];
+          const hasCompletionClips =
+            (typeof data.clipsFound === "number" && data.clipsFound > 0) ||
+            (Array.isArray(data.clips) && data.clips.length > 0);
+
+          if (DONE_STATUSES.includes(status) || data.progress >= 100 || hasCompletionClips) {
             finish(videoId);
           }
         } catch (e) {
@@ -197,7 +261,11 @@ function ProcessingContent() {
       };
 
       es.onerror = () => {
-        console.warn("[sse] connection error — switching to polling");
+        // onerror fires both on connection failures AND when the server closes
+        // the stream normally (readyState becomes CLOSED). In both cases we
+        // switch to polling so we can detect completion even if the backend
+        // never sent an explicit status:"done" event before closing the stream.
+        console.warn("[sse] stream closed/error — switching to polling");
         es.close();
         esRef.current = null;
         if (silenceRef.current) clearTimeout(silenceRef.current);
@@ -352,7 +420,7 @@ function ProcessingContent() {
               Go to Dashboard
             </button>
             <p className="text-gray-500 text-xs text-center max-w-sm leading-relaxed">
-              You can leave — processing continues in the background. Check Projects when done.
+              Processing continues in the background — you can safely leave this page and come back anytime.
             </p>
           </>
         )}

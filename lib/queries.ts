@@ -178,9 +178,12 @@ export const getClipInfo = async (id: string): Promise<ClipInfo> => {
 };
 
 // ─── Clip Download (Tip-Gated) ─────────────────────────────────────────────────
+// Pass senderAddress (the tipper's Stellar wallet) so the backend can look up
+// confirmed tips by address — no JWT required on this endpoint.
 
-export const getClipDownloadUrl = async (id: string) => {
-  const response = await apiClient.get(`/clips/${id}/download`);
+export const getClipDownloadUrl = async (id: string, senderAddress?: string) => {
+  const params = senderAddress ? { senderAddress } : {};
+  const response = await apiClient.get(`/clips/${id}/download`, { params });
   return response.data;
 };
 

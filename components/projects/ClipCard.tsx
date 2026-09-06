@@ -13,6 +13,7 @@ import {
   VolumeX,
   Pause,
 } from "lucide-react";
+import { triggerDownload } from "@/lib/download";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,12 +174,7 @@ export default function ClipCard({
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!clipUrl) return;
-    const a = document.createElement("a");
-    a.href = clipUrl;
-    a.download = `${initialTitle}.mp4`;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.click();
+    triggerDownload(clipUrl, initialTitle);
   };
 
   return (

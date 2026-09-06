@@ -214,7 +214,7 @@ export default function AuthForm({ mode = "login" }: AuthFormProps) {
           <button
             type="button"
             onClick={() => {
-              window.location.href = "https://clipcash-api.onrender.com/auths/google";
+              window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auths/google`;
             }}
             className="w-full flex items-center justify-center gap-3 bg-[#17201C] hover:bg-[#1E2B24] border border-[#233129] hover:border-brand/30 text-white py-3.5 rounded-[12px] font-medium transition-all text-[14px] active:scale-[0.98]"
           >

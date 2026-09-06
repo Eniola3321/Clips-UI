@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { getDashboardData, getVideos } from "@/lib/queries";
+import { loadActiveJob, clearActiveJob } from "@/lib/processingStore";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import StatCard from "@/components/dashboard/StatCard";
 import EarningsCard from "@/components/dashboard/EarningsCard";
 import ProjectCard from "@/components/dashboard/ProjectCard";
-import { Video, Globe, ChevronDown, Loader2 } from "lucide-react";
+import { Video, Globe, ChevronDown, Loader2, Sparkles, X } from "lucide-react";
 
 interface DashboardContentProps {
   stats: {
@@ -19,9 +21,33 @@ interface DashboardContentProps {
 }
 
 export default function DashboardContent({ stats: initialStats, projects: initialProjects }: DashboardContentProps) {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [allProjects, setAllProjects] = useState(initialProjects);
+
+  // ── Resume banner ──────────────────────────────────────────────────────────
+  // Read the store client-side only (localStorage is not available on the server)
+  const [activeJob, setActiveJob] = useState<{ videoId: string; startedAt: number } | null>(null);
+
+  useEffect(() => {
+    const job = loadActiveJob();
+    if (!job) return;
+
+    // Verify the job isn't stale (older than 30 min means something went wrong
+    // and we shouldn't keep nagging the user about it)
+    const AGE_LIMIT = 30 * 60 * 1000;
+    if (Date.now() - job.startedAt > AGE_LIMIT) {
+      clearActiveJob();
+      return;
+    }
+    setActiveJob(job);
+  }, []);
+
+  const dismissBanner = () => {
+    clearActiveJob();
+    setActiveJob(null);
+  };
 
   const { data } = useQuery({
     queryKey: ["dashboardData"],
@@ -51,6 +77,46 @@ export default function DashboardContent({ stats: initialStats, projects: initia
   return (
     <DashboardLayout>
       <div className="px-4 sm:px-6 lg:px-10 py-8 space-y-10 max-w-[1400px] mx-auto w-full">
+
+        {/* ── Resume Processing banner ── */}
+        {activeJob && (
+          <div className="relative flex items-center justify-between gap-4 px-6 py-4 rounded-2xl bg-[#00FF85]/5 border border-[#00FF85]/20 shadow-[0_0_30px_rgba(0,255,133,0.05)]">
+            {/* animated glow dot */}
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="relative shrink-0">
+                <div className="absolute inset-0 rounded-full bg-[#00FF85]/30 blur-md animate-pulse" />
+                <div className="relative w-9 h-9 rounded-full bg-[#0A1510] border border-[#00FF85]/30 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-[#00FF85]" />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-white leading-snug">
+                  Your video is still being processed
+                </p>
+                <p className="text-xs text-[#5A6F65] font-medium mt-0.5 truncate">
+                  AI is cutting clips in the background — tap to watch progress
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => router.push(`/dashboard/processing?videoId=${activeJob.videoId}`)}
+                className="px-5 py-2 rounded-xl bg-[#00FF85] hover:bg-[#00e87a] text-black text-xs font-black tracking-wide transition-all active:scale-[0.97] shadow-[0_0_15px_rgba(0,255,133,0.25)]"
+              >
+                Resume
+              </button>
+              <button
+                onClick={dismissBanner}
+                aria-label="Dismiss"
+                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/5 text-[#5A6F65] hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatCard 

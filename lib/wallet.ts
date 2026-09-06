@@ -90,47 +90,88 @@ export async function signAuthMessage(message: string): Promise<string> {
 /**
  * Signs a Stellar transaction XDR with the connected wallet.
  * Used for tipping transactions.
+ *
+ * IMPORTANT: networkPassphrase must be passed so the wallet signs against
+ * the correct network. Without it, wallets like Freighter may use their own
+ * default, producing a signature that Stellar rejects with tx_bad_auth.
  */
 export async function signTransaction(xdr: string): Promise<string> {
   initWalletKit();
-  // Get the current address to ensure the correct account is signing
   const { address } = await StellarWalletsKit.getAddress();
+
+  // Map our Networks enum value to the actual Stellar network passphrase string
+  // that the wallets kit and Freighter both understand.
+  const networkPassphrase =
+    STELLAR_NETWORK === Networks.PUBLIC
+      ? "Public Global Stellar Network ; September 2015"  // Mainnet passphrase
+      : "Test SDF Network ; September 2015";               // Testnet passphrase
+
   const { signedTxXdr } = await StellarWalletsKit.signTransaction(xdr, {
     address,
+    networkPassphrase,
   });
   return signedTxXdr;
 }
 
 /**
- * Normalises the signature from the wallet kit to a raw 128-character hex signature
- * that the backend expects, stripping any "ed25519:" prefix or converting from base64.
+ * Normalises the signature from the wallet kit to a raw 128-character hex string.
+ *
+ * Freighter's signMessage returns a base64-encoded 64-byte Ed25519 signature.
+ * The backend expects the same 64 bytes as lowercase hex (128 chars).
+ *
+ * Common failure modes this handles:
+ *  - "ed25519:" prefix from some wallets
+ *  - Base64 with or without padding ("=")
+ *  - Already-hex strings passed through unchanged
+ *  - Off-by-one from naive charCode loops (fixed by using Uint8Array)
  */
 export function ensureHexSignature(signature: string): string {
-  // If it has "ed25519:" prefix, strip it first
+  // Strip "ed25519:" prefix if present
   if (signature.startsWith("ed25519:")) {
     signature = signature.slice(8);
   }
 
-  // If the signature is already a 128-character hex string, return it
-  if (signature.length === 128 && /^[0-9a-fA-F]+$/.test(signature)) {
+  // Already a 128-char hex string — return as-is (lowercased)
+  if (/^[0-9a-fA-F]{128}$/.test(signature)) {
     return signature.toLowerCase();
   }
 
-  // Otherwise, assume it is Base64 and convert to Hex
+  // Treat as Base64 → convert to hex via Uint8Array to avoid leading-zero drops
   try {
-    const binaryString = atob(signature);
-    let hex = "";
-    for (let i = 0; i < binaryString.length; i++) {
-      const hexChar = binaryString.charCodeAt(i).toString(16).padStart(2, "0");
-      hex += hexChar;
+    // Normalise base64: replace URL-safe chars, restore padding
+    const b64 = signature
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .replace(/\s/g, "");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+
+    const binary = atob(padded);
+    const bytes  = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
     }
-    if (hex.length === 128) {
-      return hex;
-    }
+
+    // Convert each byte to exactly 2 hex chars — no leading-zero drops
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    // Freighter's signMessage prepends a 2-byte prefix to the 64-byte Ed25519
+    // signature, producing 66 bytes. Strip the first 2 bytes when present.
+    const sigBytes = bytes.length === 66 ? bytes.slice(2) : bytes;
+    const sigHex   = Array.from(sigBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    if (sigHex.length === 128) return sigHex;
+
+    // Unexpected length — log and return raw so the error is visible
+    console.warn("[ensureHexSignature] unexpected hex length:", sigHex.length, "(pre-strip hex was", hex.length, "chars)");
   } catch (e) {
-    // ignore
+    console.warn("[ensureHexSignature] base64 decode failed:", e);
   }
 
+  // Last resort — return whatever we have
   return signature;
 }
 

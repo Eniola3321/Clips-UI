@@ -2,8 +2,12 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Play, Pause, X, Volume2, VolumeX, Download, Lock } from "lucide-react";
+import { Play, Pause, X, Volume2, VolumeX, Download, Lock, Unlock } from "lucide-react";
 import TipModal from "./TipModal";
+import { useWallet } from "@/components/WalletProvider";
+import { isUnlocked } from "@/lib/tipUnlockStore";
+import { getClipDownloadUrl } from "@/lib/queries";
+import { triggerDownload } from "@/lib/download";
 
 interface AIClipCardProps {
   id: string;
@@ -163,22 +167,50 @@ export default function AIClipCard({
   creatorName,
   tippingEnabled = false,
 }: AIClipCardProps) {
+  const { address } = useWallet();
+
   const [imgSrc, setImgSrc] = useState(thumbnail || FALLBACK);
   const [hovered, setHovered] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
+  // true when this wallet has already tipped and unlocked this clip
+  const [unlocked, setUnlocked] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  // Check localStorage on mount and whenever the wallet address changes
+  useEffect(() => {
+    if (address && tippingEnabled) {
+      setUnlocked(isUnlocked(id, address));
+    }
+  }, [id, address, tippingEnabled]);
 
   useEffect(() => {
     setImgSrc(thumbnail || FALLBACK);
   }, [thumbnail]);
 
-  const triggerDownload = (downloadUrl: string) => {
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = `${title}.mp4`;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.click();
+  // Kick off a proxy-routed download so the browser shows a Save dialog
+  // instead of opening the Cloudinary URL in a new tab.
+  const doDownload = (downloadUrl: string) => triggerDownload(downloadUrl, title);
+
+  // Called when the user clicks Download on an already-unlocked clip
+  const handleDirectDownload = async () => {
+    if (!address || downloading) return;
+    setDownloading(true);
+    try {
+      const { downloadUrl } = await getClipDownloadUrl(id, address);
+      doDownload(downloadUrl);
+    } catch {
+      // If for any reason the direct download fails, fall back to the tip modal
+      setShowTipModal(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Called by TipModal once tip + download is confirmed
+  const handleTipComplete = (downloadUrl: string) => {
+    setUnlocked(true);
+    doDownload(downloadUrl);
   };
 
   const timeAgo = (date: string | null) => {
@@ -205,7 +237,7 @@ export default function AIClipCard({
           clipId={id}
           clipTitle={title}
           onClose={() => setShowTipModal(false)}
-          onDownloadReady={triggerDownload}
+          onDownloadReady={handleTipComplete}
         />
       )}
 
@@ -285,10 +317,14 @@ export default function AIClipCard({
                     Creator wallet
                   </p>
                   <p
-                    className="text-[9px] text-brand font-mono break-all leading-relaxed"
+                    className="text-[9px] text-brand font-mono leading-relaxed cursor-pointer hover:text-white transition-colors"
                     title={creatorAddress}
+                    onClick={() => navigator.clipboard?.writeText(creatorAddress).catch(() => {})}
                   >
-                    {creatorAddress}
+                    {creatorAddress.length > 16
+                      ? `${creatorAddress.slice(0, 8)}…${creatorAddress.slice(-6)}`
+                      : creatorAddress}
+                    <span className="ml-1 text-[#3A4A43]">(copy)</span>
                   </p>
                 </>
               ) : (
@@ -296,9 +332,18 @@ export default function AIClipCard({
               )}
             </div>
             {tippingEnabled && creatorAddress && (
-              <div className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-brand/10 border border-brand/20 mt-0.5">
-                <Lock className="w-2.5 h-2.5 text-brand" />
-                <span className="text-[8px] font-black text-brand uppercase tracking-wide">Tip</span>
+              <div className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md border mt-0.5 ${
+                unlocked
+                  ? "bg-brand/10 border-brand/20"
+                  : "bg-white/5 border-white/10"
+              }`}>
+                {unlocked
+                  ? <Unlock className="w-2.5 h-2.5 text-brand" />
+                  : <Lock className="w-2.5 h-2.5 text-[#5A6F65]" />
+                }
+                <span className={`text-[8px] font-black uppercase tracking-wide ${unlocked ? "text-brand" : "text-[#5A6F65]"}`}>
+                  {unlocked ? "Unlocked" : "Tip"}
+                </span>
               </div>
             )}
           </div>
@@ -308,26 +353,56 @@ export default function AIClipCard({
             className="flex items-center justify-between pt-1 border-t border-white/[0.04]"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => setShowTipModal(true)}
-              className={`flex items-center gap-1.5 text-[11px] font-bold transition-colors ${
-                tippingEnabled
-                  ? "text-brand hover:text-[#00e58f]"
-                  : "text-[#5A6F65] hover:text-white"
-              }`}
-            >
-              {tippingEnabled ? (
-                <>
-                  <Lock className="w-3 h-3" />
-                  Tip-to-Save
-                </>
-              ) : (
-                <>
-                  <Download className="w-3 h-3" />
-                  Download
-                </>
-              )}
-            </button>
+            {/* Already unlocked — direct download, no tip needed */}
+            {tippingEnabled && unlocked ? (
+              <button
+                onClick={handleDirectDownload}
+                disabled={downloading}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-brand hover:text-[#00e58f] transition-colors disabled:opacity-50"
+              >
+                {downloading ? (
+                  <>
+                    <Download className="w-3 h-3 animate-bounce" />
+                    Downloading…
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3 h-3" />
+                    Download
+                  </>
+                )}
+              </button>
+            ) : (
+              /* Tip required or free */
+              <button
+                onClick={() => setShowTipModal(true)}
+                className={`flex items-center gap-1.5 text-[11px] font-bold transition-colors ${
+                  tippingEnabled
+                    ? "text-brand hover:text-[#00e58f]"
+                    : "text-[#5A6F65] hover:text-white"
+                }`}
+              >
+                {tippingEnabled ? (
+                  <>
+                    <Lock className="w-3 h-3" />
+                    Tip-to-Save
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3 h-3" />
+                    Download
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Unlocked badge */}
+            {tippingEnabled && unlocked && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-brand/10 border border-brand/20">
+                <Unlock className="w-2.5 h-2.5 text-brand" />
+                <span className="text-[8px] font-black text-brand uppercase tracking-wide">Unlocked</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
